@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ko">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<meta name="color-scheme" content="light dark">
+	<title>LeKiwi 웹 오퍼레이터</title>
+	<link rel="icon" href="favicon.svg" type="image/svg+xml">
+	<link rel="stylesheet" href="css/app.css">
+	<script>
+		// 밝기를 첫 그림 전에 정한다 (깜박임 방지): 저장해 둔 값, 없거나 저장소를 못 쓰면 시스템 설정.
+		// CSS 는 data-theme 하나만 본다 (어두운 색을 두 번 적지 않게).
+		document.documentElement.dataset.theme =
+			matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+		try {
+			const theme = localStorage.getItem('lekiwi-web-operator.theme');
+			if (theme === 'light' || theme === 'dark') {
+				document.documentElement.dataset.theme = theme;
+			}
+		} catch {
+			// 사생활 보호 모드 등
+		}
+	</script>
+	<script type="module" src="js/app.js"></script>
+</head>
+<body>
+	<header class="topbar">
+		<a class="brand" href="#/dashboard">
+			<img src="favicon.svg" alt="" width="30" height="30">
+			<span class="brand-text">
+				<span class="robot-name" id="robot-name">LeKiwi</span>
+				<span class="robot-mode" id="robot-mode" aria-hidden="true"></span>
+			</span>
+		</a>
+		<div class="topbar-status">
+			<span class="chip" id="chip-link" data-tone="warn" aria-live="polite">
+				<span class="dot"></span><span class="chip-text">연결 중</span>
+			</span>
+			<span class="chip" id="chip-mode" data-tone="neutral">
+				<span class="dot"></span><span class="chip-text">모드 —</span>
+			</span>
+			<span class="chip" id="chip-motor" data-tone="neutral">
+				<span class="dot"></span>
+				<span><span class="wide-only">바퀴 </span><span class="chip-text">토크 —</span></span>
+			</span>
+			<span class="control" id="control"></span>
+		</div>
+		<div class="topbar-actions">
+			<button type="button" class="icon-btn" id="theme-toggle" aria-label="밝기 바꾸기">
+				<svg viewBox="0 0 24 24" aria-hidden="true">
+					<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 0 0 17z"/>
+				</svg>
+			</button>
+			<button type="button" class="estop" id="estop" data-estop
+				aria-label="비상 정지: 바퀴를 멈추고 바퀴 · 팔 토크를 끄고 (편 팔은 떨어집니다) 자율 주행 목표를 취소합니다">
+				<span class="estop-knob" aria-hidden="true"></span>
+				<span>비상 정지</span>
+			</button>
+		</div>
+	</header>
+
+	<p class="estop-banner" id="estop-banner" role="alert" hidden></p>
+
+	<nav class="sidenav" aria-label="화면">
+		<a href="#/dashboard" data-route="dashboard">
+			<svg viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16l4-4.5"/><path d="M4 20h16"/>
+			</svg>
+			<span>대시보드</span>
+		</a>
+		<a href="#/calibration" data-route="calibration">
+			<svg viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/>
+				<circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>
+			</svg>
+			<!-- 휴대폰 탭바 (8칸)에는 '캘리브레이션'이 들어가지 않아 '보정'으로 줄인다 -->
+			<span class="nav-full">캘리브레이션</span><span class="nav-short">보정</span>
+		</a>
+		<a href="#/drive" data-route="drive">
+			<svg viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M12 3v18M3 12h18"/>
+				<path d="M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>
+			</svg>
+			<span>조작</span>
+		</a>
+		<a href="#/mapping" data-route="mapping">
+			<svg viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M3 6.5l6-3 6 3 6-3v14l-6 3-6-3-6 3z"/><path d="M9 3.5v14M15 6.5v14"/>
+			</svg>
+			<span>지도 작성</span>
+		</a>
+		<a href="#/navigation" data-route="navigation">
+			<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 18-7-4-7 4z"/></svg>
+			<span>자율 주행</span>
+		</a>
+		<a href="#/sensors" data-route="sensors">
+			<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>
+			<span>센서</span>
+		</a>
+		<a href="#/network" data-route="network">
+			<svg viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M2.5 9a14 14 0 0 1 19 0"/><path d="M5.5 12.5a9.5 9.5 0 0 1 13 0"/>
+				<path d="M8.8 16a5 5 0 0 1 6.4 0"/>
+				<circle cx="12" cy="19.5" r="1.3" fill="currentColor" stroke="none"/>
+			</svg>
+			<span>네트워크</span>
+		</a>
+		<a href="#/logs" data-route="logs">
+			<svg viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M5 5h14M5 10h14M5 15h9M5 20h6"/>
+			</svg>
+			<span>로그</span>
+		</a>
+	</nav>
+
+	<main id="main" tabindex="-1"></main>
+
+	<div class="toasts" id="toasts" aria-live="polite"></div>
+
+	<dialog id="confirm" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+		<form method="dialog">
+			<h2 id="confirm-title"></h2>
+			<p id="confirm-message"></p>
+			<div class="dialog-actions">
+				<!-- 모달이 열려 있는 동안 상단 바는 눌리지 않는다: 여기서도 비상 정지 (누르면 창은 취소로 닫힌다) -->
+				<button type="button" class="estop" data-estop
+					aria-label="비상 정지: 바퀴를 멈추고 바퀴 · 팔 토크를 끄고 (편 팔은 떨어집니다) 자율 주행 목표를 취소합니다. 이 창은 취소됩니다">
+					<span class="estop-knob" aria-hidden="true"></span>
+					<span>비상 정지</span>
+				</button>
+				<button type="submit" value="cancel" class="btn" autofocus>취소</button>
+				<button type="submit" value="ok" class="btn btn-primary" id="confirm-ok"></button>
+			</div>
+		</form>
+	</dialog>
+</body>
+</html>

@@ -1,0 +1,30 @@
+# LeKiwi 웹 오퍼레이터: 부팅하면 http://<로봇>.local:8080 을 연다.
+# 설치: sudo cp lekiwi-web-operator.service /etc/systemd/system/
+#       sudo systemctl daemon-reload && sudo systemctl enable --now lekiwi-web-operator
+# 로그: journalctl -u lekiwi-web-operator -f
+[Unit]
+Description=LeKiwi 웹 오퍼레이터 (브라우저로 로봇 보기 · 조작, 포트 8080)
+Wants=network-online.target
+After=network-online.target systemd-logind.service NetworkManager.service
+
+[Service]
+User=roboseasy
+# 마지막 SSH 가 끊기면 logind(RemoveIPC=yes)가 roboseasy 의 /dev/shm 을 지워 이 서비스와
+# 웹에서 켠 launch 사이의 Fast DDS 공유 메모리 통신이 멈춘다. linger 로 사용자를 늘 살려 둔다.
+# '+' 는 root 로 실행, '-' 는 실패해도 서비스는 시작한다.
+ExecStartPre=-+/usr/bin/loginctl enable-linger roboseasy
+ExecStart=/home/roboseasy/lekiwi_web_operator/run_web_operator.sh
+Restart=on-failure
+RestartSec=3
+# 기본 fd 상한 1024 보다 넉넉하게 (게이트웨이도 IP 당 · 전체 연결 수를 제한한다)
+LimitNOFILE=8192
+# Ctrl+C 와 같은 SIGINT 로 끝내야 정지 · 토크 끔 · launch 정리를 한다
+KillSignal=SIGINT
+# KillMode 는 기본값(control-group)을 그대로 둔다: stop 하면 모든 노드가 SIGINT 를 직접 받아
+# 모터 드라이버가 스스로 속도 0 → 토크 끔을 한다. mixed 로 바꾸면 게이트웨이가 죽었을 때
+# 드라이버가 SIGKILL 만 받아 바퀴가 마지막 속도로 돌 수 있다.
+# 게이트웨이의 차례대로 끄기 (자율 주행 30+5 s → 로봇 15+5 s) 가 끝날 때까지 기다린다.
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target
