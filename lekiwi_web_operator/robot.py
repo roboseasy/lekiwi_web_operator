@@ -762,13 +762,15 @@ class RobotService:
 				return ok_result(ARM_ALREADY_RELAXED_MESSAGE)
 			deadline = time.monotonic() + 2 * config.MOTOR_SERVICE_TIMEOUT + config.ARM_REST_TIMEOUT
 			reason = self._rest_arm(deadline, ARM_FOLDING_MESSAGE)
+			with self._lock:
+				is_skipped = self._arm_rest['state'] == 'idle'   # _rest_arm: 그사이 꺼져 접지 않았다
 		finally:
 			self._arm_lock.release()
 		if reason is not None:
 			message = f'팔을 접지 못했습니다: {reason}'
 			self._emit('error', message)
 			return error_result('conflict', message)
-		return ok_result(ARM_FOLDED_MESSAGE)
+		return ok_result(ARM_ALREADY_RELAXED_MESSAGE if is_skipped else ARM_FOLDED_MESSAGE)
 
 	def calibration_follower(self, client_id: str, action: str, body: dict) -> CommandResult:
 		"""(막힘일 수 있음) 보정 탭 팔로워 명령 (follower_calibration.FollowerCalibration.command)."""
@@ -1307,6 +1309,8 @@ class RobotService:
 			꺼진 것을 확인했으면 접지 않고 None.
 		"""
 		node = self._require_node()
+		with self._lock:
+			was_maybe_on = self._is_arm_maybe_on
 		self._set_arm_rest('resting', None)
 		self._emit('info', message)
 		reason = None
@@ -1331,9 +1335,11 @@ class RobotService:
 		warnings: list[str] = []
 		while reason is None:
 			# 그사이 꺼졌다 (비상 정지 · 팔 힘 빼기): 이 게이트웨이가 켠 것은 끄기 확인, 남이 켠 것은 arm_ready
+			# false 확인 (None = 아직 모름: 꺼진 것으로 보지 않는다)
 			with self._lock:
-				is_off = not self._is_arm_maybe_on
-			is_off = is_off and node.arm_ready() is not True
+				is_maybe_on = self._is_arm_maybe_on
+			ready = node.arm_ready()
+			is_off = not is_maybe_on and (ready is not True if was_maybe_on else ready is False)
 			arm = node.snapshot()['arm']
 			status = arm['status'] or {}
 			if is_off or (_is_status_fresh(arm) and status.get('state') == 'rested'):
