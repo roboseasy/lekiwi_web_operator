@@ -205,10 +205,12 @@ PC의 SO-101 리더암으로 르키위 팔을 움직이는 일의 게이트웨�
 | 팔 시작 `POST /api/arm/start` | 권한 | 팔 토크를 켜고 (`lekiwi/motor/arm_torque` true, 이미 켜져 있으면 드라이버가 아무것도 쓰지 않는다) 팔 원격 조작 세션을 연다. 세션 중에만 리더 값이 `lekiwi/arm/goal`로 간다 |
 | 팔 멈춤 `POST /api/arm/stop` | 권한 | 세션을 닫는다. **팔은 토크를 켠 채 그 자리를 유지한다** |
 | 팔 힘 빼기 `POST /api/arm/relax` | 권한 | 세션을 닫고 팔 토크를 끈다 (편 팔은 떨어진다). 비상 정지 · 자율 주행 중에도 된다 |
+| 팔 접고 힘 빼기 `POST /api/arm/fold` | 권한 | 세션을 닫고 ⑦과 같은 순서로 접은 뒤 팔 토크를 끈다 (`lekiwi/arm/rest` → `rested` 최대 6초 → `arm_torque` false). 누가 켠 팔 토크든 (PC(ZMQ) 포함). 접은 자세가 없거나 못 접으면 409와 이유 (팔 토크는 그대로). 이미 힘이 빠져 있으면 (`arm_ready` false) 접지 않고 ok. 성공 `팔을 접고 힘을 뺐습니다` |
 
 - 팔 시작은 아래가 모두 맞을 때만 된다 (아니면 409와 이유, `status.teleop_arm.blocked_reason`과 같은 글):
   - 조작 권한이 있다, 비상 정지가 걸려 있지 않다 (걸려 있으면 먼저 '주행 켜기'로 푼다. 팔 시작으로는 풀리지 않는다), 누른 뒤 1초가 지났다
   - 자율 주행 · 자동 주행 맵 생성 중이 아니다
+  - PC(ZMQ)가 조작 중이 아니다 (`status.zmq_host.session`이 `active`면 `PC(ZMQ, <IP>)가 조작 중입니다`, 12장)
   - 팔로워 노드 `lekiwi_follower_arm_node`가 있다 (`팔 노드가 없습니다 (로봇 · 팔을 켜세요)`)
   - 드라이버가 팔 명령을 받는다: `lekiwi/motor/arm_ready` 발행자가 있다 (bringup `use_arm:=true`)
   - 팔로워 상태 `lekiwi/arm/status`가 1초 안에 왔다. 팔 시작이 `arm` 묶음을 스스로 구독하고 최대 2초 기다린다 (보는 화면이 없어도 된다: 2b의 PC 에이전트). 시작하는 동안과 세션 동안 구독을 유지한다
@@ -236,7 +238,7 @@ PC에 USB로 꽂은 SO-101 리더암을 읽는 프로그램(PC 에이전트, 따
 
 ### ⑦ 로봇을 끌 때 팔 (접은 뒤 토크 끔)
 
-드라이버는 끝날 때 팔 토크를 그대로 둔다 (팔이 떨어지지 않게). 그대로 두면 드라이버 없이 굳은 팔이 남고, 그 뒤의 비상 정지로도 끌 수 없다. 그래서 **이 게이트웨이가 켠 팔 토크가 남아 있을 수 있으면** (`status.teleop_arm.is_torque_maybe_on`) 로봇(bringup)을 끄기 전에 팔을 접는다:
+드라이버는 끝날 때 팔 토크를 그대로 둔다 (팔이 떨어지지 않게). 그대로 두면 드라이버 없이 굳은 팔이 남고, 그 뒤의 비상 정지로도 끌 수 없다. 그래서 **팔 토크가 켜져 있을 수 있으면** (이 게이트웨이가 켬: `status.teleop_arm.is_torque_maybe_on`, 또는 누가 켰든 (PC(ZMQ) · 다른 프로그램) `lekiwi/motor/arm_ready` true — 게이트웨이는 이 토픽을 늘 받는다) 로봇(bringup)을 끄기 전에 팔을 접는다:
 
 1. 세션을 닫는다.
 2. 팔로워에 `lekiwi/arm/rest` (`std_srvs/Trigger`)를 부른다. 팔로워가 약 3초 동안 접은 자세로 간다 (`lekiwi/arm/status`가 `resting` → `rested`).
@@ -252,7 +254,7 @@ PC에 USB로 꽂은 SO-101 리더암을 읽는 프로그램(PC 에이전트, 따
 - 진행은 알림 (`로봇을 끄기 전에 팔을 접습니다` → `팔을 접고 팔 토크를 껐습니다`)과 `status.teleop_arm.rest` (`idle` · `resting` · `rested` · `failed`, `reason`)로 보인다.
 - 지도 작성 · 자율 주행이 켜져 있어 로봇 끄기가 어차피 거절될 때는 팔을 건드리지 않는다.
 - **터미널에서 켠 bringup을 Ctrl+C로 끄는 것은 다루지 못한다** (게이트웨이를 거치지 않는다). 그때는 먼저 웹에서 '팔 힘 빼기'를 하거나 웹에서 로봇을 끈다.
-- 이 게이트웨이를 켜기 전에 켜진 팔 토크 (전에 돌던 게이트웨이 · 다른 프로그램)는 모른다 (`is_torque_maybe_on`이 false다).
+- 이 게이트웨이를 켜기 전에 켜진 팔 토크 (전에 돌던 게이트웨이 · 다른 프로그램)는 `is_torque_maybe_on`이 false지만, 드라이버의 `arm_ready`가 true면 그것으로 알고 접는다.
 
 ---
 
@@ -269,7 +271,7 @@ PC에 USB로 꽂은 SO-101 리더암을 읽는 프로그램(PC 에이전트, 따
 | 새로 보정 `start {robot_id}` → `middle` → `finish` (또는 `cancel`) | 새 이름만 (있는 이름은 409). 로봇 기능을 끄고 (모터 버스 주인이 없게) 보정 프로그램 `lekiwi_web_operator/follower_calibration_worker.py`를 `~/lerobot060_venv/bin/python`으로 켠다 (`pc_agent/lekiwi_pc_agent/calibration.py`, lerobot 0.6.0 순서, 포트는 TIOCEXCL 로 혼자 연다). 팔 토크가 켜진 모터가 있으면 아무것도 쓰지 않고 오류 (`팔 토크가 켜져 있습니다 (...)`). 끝나면 파일 · `arm_profile.yaml`의 `robot_id`를 쓰고 **접은 자세를 지운다** (가운데가 바뀌어 예전 tick 은 다른 자세다: 다시 `rest_pose`). 보정 프로그램이 꺼진 것을 본 뒤에만 로봇 기능을 다시 켠다 (취소 · 오류도). 그동안 로봇 기능 켜기는 거절한다 |
 | 되돌리기 `restore` | 지난 새로 보정이 되돌리지 못하고 끝났을 때 (전원 · 죽음 · 답 없음, `restore_pending`) 남은 예전 보정 값을 모터에 쓴다 (로봇 기능을 끄고 보정 프로그램으로). 다음 `start`도 먼저 되돌린다 |
 
-- 고르기 · 접은 자세 · 새로 보정 · 되돌리기는 팔 세션 · 팔 토크가 켜져 있을 수 있음 (`is_torque_maybe_on` · `arm_ready`) · 지도 작성 · 자율 주행 · 자동 주행 · 로봇 끄는 중 · 다른 보정 중에는 409. 막는 것을 보고 바쁨을 거는 것은 한 번에 한다 (두 요청이 같이 지나가지 않는다).
+- 고르기 · 접은 자세 · 새로 보정 · 되돌리기는 팔 세션 · 팔 토크가 켜져 있을 수 있음 (`is_torque_maybe_on` · `arm_ready`) · 지도 작성 · 자율 주행 · 자동 주행 · 로봇 끄는 중 · 다른 보정 중에는 409. 고르기 · 모터 값으로 만들기 · 접은 자세 · 새로 보정 · 되돌리기는 PC(ZMQ)가 조작 중이어도 409 (`PC(ZMQ, <IP>)가 조작 중입니다`. 제로-포지션 · 끝내기 · 취소는 막지 않는다). 막는 것을 보고 바쁨을 거는 것은 한 번에 한다 (두 요청이 같이 지나가지 않는다).
 - **되돌리기 (보정 프로그램)**: 취소 · 오류 · 예외 (KeyboardInterrupt 도) · 표준 입력 닫힘 · SIGTERM 이면 제로-포지션 위치 시키기로 쓴 값을 예전 것으로 되돌린다. SIGINT 는 무시한다. 되돌리지 못하면 오류 `reason`에 적는다. 쓰기 전에 모터의 예전 보정을 `~/lekiwi_ws/arm_calibration_restore.json` (arm_profile 옆, fsync)에 남기고 되돌리거나 끝내면 지운다.
 - **답 없음**: `middle` · `finish` · `cancel`에 보정 프로그램이 10초 (`FOLLOWER_WORKER_STEP_TIMEOUT`) 안에 답하지 않으면 (각 줄의 `ack`) 죽이고 `모터 보정이 반쯤 쓰였을 수 있습니다. ‘되돌리기’를 누르세요` 오류. 시작은 20초.
 - 조작 권한이 끝나거나 비상 정지면 도는 새로 보정을 취소한다 (보정 프로그램이 뜨기 전이면 띄우지 않는다). 레지스터는 새로 보정 앞뒤로 잊는다 (드라이버가 다시 알릴 때까지 `is_match` null).
@@ -444,7 +446,7 @@ AP 칸에는 상태(`켜짐 · 이름 · 2.4 GHz 채널 6 · 접속 n대`)와 �
 | 속도 상한 | 베이스 컨트롤러 파라미터 + 패드 상한 | `max_linear_x` · `max_linear_y` · `max_linear_speed` · `max_angular_z`를 읽어 자른다. 못 읽으면 0.10 m/s · 0.58 rad/s. 패드의 단계는 그와 따로: 조작 화면 0.23 m/s · 1.53 rad/s 안 (단계 22까지), 지도 작성 (그리고 `pad`가 없는 입력) 0.11 m/s · 옆 0.10 · 0.75 rad/s 안 (단계 10까지) |
 | PC 에이전트 (3장 ⑧) | 하나만 · 생존 신호 2초 · 권한 화면의 허락 | 허락된 에이전트의 리더 값만, 팔 세션 중에만 `lekiwi/arm/goal`로 간다. 허락은 그 조작 권한이 끝나면 끝난다. 모든 메시지를 크기 · 형 · 유한한 수 · 관절 이름 · 빈도로 검사한다 |
 | 조작을 막는 것 | 글로 이유를 보여 준다 | 보기 전용 · 권한 없음 · 자율 주행 중 · 베이스 컨트롤러 없음 · 베이스가 둘 이상 (같은 도메인의 다른 로봇) · `cmd_vel`에 다른 발행자 (터미널 키보드 조작 등) |
-| 비상 정지 걸림 (latch) | 직후 **1초**는 켜기 거절 | 정지 · 모든 Nav2 목표 취소 · 토크 끔 · 조작 노드 내림. 권한을 가진 화면이 '주행 켜기' · '자율 주행 시작'에 성공해야 풀린다 |
+| 비상 정지 걸림 (latch) | 직후 **1초**는 켜기 거절 | 정지 · 모든 Nav2 목표 취소 · 토크 끔 · 조작 노드 내림. 권한을 가진 화면이 '주행 켜기' · '자율 주행 시작'에 성공해야 풀린다. 걸림을 `lekiwi/safety/estop_latched` (`std_msgs/Bool`, reliable + transient_local, 게이트웨이를 켤 때 false · 바뀔 때마다)로 알린다: `lekiwi_zmq_host`가 걸려 있으면 PC 세션을 시작하지 않는다 |
 | 입력 걸림 | 0 입력 한 번 | 비상 정지 · 주행 끄기 · 자율 주행 시작 뒤에는 키를 모두 뗄 때까지 움직임 입력을 버린다 |
 | 자동 주행 입력 (4장) | 조작 권한 하나 · 자동 주행마다 번호 하나 | 자동 주행도 조작 패드와 같은 `cmd_vel` 길이다 (0.3초 신선도 · 램프 · 상한, 새 퍼블리셔 없음). 정지 · 비상 정지 · 주행 끄기 · 권한 끝 · 지도 작성 끔 · 자율 주행 시작이 같은 잠금 안에서 자동 주행도 끝낸다. 자동 주행 중 0 입력은 무시하고, 0이 아닌 입력은 자동 주행을 끝낸 뒤 입력 걸림처럼 버린다 |
 | 자동 주행 충돌 예측 | 1초 앞, 0.1초마다 | 몸체 원 0.19 m + 접은 팔 상자 (중심에서 앞 0.22 m · 좌우 0.10 m) + 여유 0.08 m가 그 명령으로 1초 동안 지나갈 자리에 스캔 점 · 최근 3초 동안 기억한 점 · 지도의 장애물 칸이 있으면 0을 보낸다. 앞으로만 간다. 제자리에서 돌 때는 반지름 약 0.32 m 원 전체를 본다 |
@@ -452,7 +454,8 @@ AP 칸에는 상태(`켜짐 · 이름 · 2.4 GHz 채널 6 · 접속 n대`)와 �
 | 자동 주행 걸림 | 3초 | 보낸 만큼 움직이지 못하면 (4장 표) 0을 보내고 끝낸다. 스스로 빠져나오지 않는다 |
 | 비상 정지 → 팔 | 바퀴 다음에, 기다리지 않고 | 팔 토크도 끈다 (편 팔은 떨어진다). 못 끄면 알리고 바퀴 정지는 그대로 둔다 (3장 ④) |
 | 팔 원격 조작 세션 (3장 ⑥) | 조작 권한 하나에 묶임 | 시작은 팔로워 · 팔 쓰기 드라이버 · 신선한 팔로워 상태가 있고 비상 정지 · 자율 주행 · 자동 주행이 아닐 때만. 권한 끝 · 팔 멈춤은 팔 토크를 켠 채 유지한다. 세션 중 자율 주행 · 자동 주행 시작은 거절하고, 세션 없이 팔 토크가 켜져 있을 수 있으면 시작하되 알린다 |
-| 로봇 끄기 전 팔 접기 (3장 ⑦) | 이 게이트웨이가 켠 팔 토크가 남아 있을 수 있을 때 | 접고 (`lekiwi/arm/rest` → `rested`, 6초) 팔 토크를 끈 뒤에만 로봇을 끈다. 못 접으면 끄지 않는다 (force면 힘을 빼고 끈다). 게이트웨이 종료는 8초 안에 해 보고, 못 접으면 팔을 그대로 둔다 |
+| PC(ZMQ) 세션 (`lekiwi_zmq_host`) | `status.zmq_host.session`이 `active` (5초 넘게 안 오면 `unknown`: 막지 않는다) | 팔 시작 · 자율 주행 · 자동 주행 맵 생성 · 팔로워 보정 (고르기 · 모터 값으로 만들기 · 새로 보정 · 접은 자세 · 되돌리기) · 네트워크 전환 (공유기 연결 · AP 켜기 · 끄기 · 설정)을 409 `PC(ZMQ, <IP>)가 조작 중입니다`로 거절한다. 바퀴 주행은 'cmd_vel에 다른 발행자'로 막힌다. 조작 권한이 있는 동안은 조작 노드 때문에 PC 세션이 시작되지 않는다 |
+| 로봇 끄기 전 팔 접기 (3장 ⑦) | 이 게이트웨이가 켠 팔 토크가 남아 있을 수 있거나 `arm_ready`가 true일 때 (누가 켰든) | 접고 (`lekiwi/arm/rest` → `rested`, 6초) 팔 토크를 끈 뒤에만 로봇을 끈다. 못 접으면 끄지 않는다 (force면 힘을 빼고 끈다). 게이트웨이 종료는 8초 안에 해 보고, 못 접으면 팔을 그대로 둔다 |
 | 리더 값 끊김 | 0.5초 | `lekiwi/arm/goal`을 그친다 (팔은 그 자리 유지). 0.5초보다 밀린 값은 보내지 않는다 |
 | Nav2 감독 도구 ↔ 조작 노드 | `lekiwi_web_operator_view` | 감독 도구는 이 노드가 그래프에 있을 때만 토크를 켜고, 사라지면 끄고 끝난다. 게이트웨이는 권한이 살아 있고 비상 정지가 걸려 있지 않을 때만 이 노드를 둔다 |
 | 자율 주행 중 `cmd_vel` | 게이트웨이는 손대지 않는다 | `cmd_vel`을 구독하지 않고, 자율 주행 중에는 퍼블리셔도 없다 (감독 도구는 발행자가 `collision_monitor` 하나, 구독자가 베이스 하나인지 0.5초마다 본다). '속도'는 Nav2 `speed_limit`으로만 보낸다 (5장) |
@@ -635,7 +638,7 @@ ros2 launch: bringup · Cartographer · Nav2 (+ lekiwi_nav2_motor_guard)
 |------|------|------|
 | `scan` | 대시보드 · 조작 · 지도 작성 · 자율 주행 | 스캔 |
 | `odom` | 대시보드 · 센서 (메시지는 따로 없고 `status.odom` · `pose.odom`을 채운다) | odom |
-| `arm` | (텔레오퍼레이션 화면, 3단계) 메시지는 따로 없고 `status.teleop_arm`의 `arm_ready` · `follower` · `joints`를 채운다. 팔 시작 · 세션 · 팔 접기 동안은 보는 화면이 없어도 구독한다 | 팔로워 상태 `lekiwi/arm/status` (30 Hz) · 관절 `lekiwi/arm/state` (30 Hz) · `lekiwi/motor/arm_ready` |
+| `arm` | (텔레오퍼레이션 화면, 3단계) 메시지는 따로 없고 `status.teleop_arm`의 `arm_ready` · `follower` · `joints`를 채운다. 팔 시작 · 세션 · 팔 접기 동안은 보는 화면이 없어도 구독한다 | 팔로워 상태 `lekiwi/arm/status` (30 Hz) · 관절 `lekiwi/arm/state` (30 Hz). `lekiwi/motor/arm_ready` (바뀔 때만)는 늘 받고 (끄기 전 접기 · 보정 막기), `status`에는 이 채널을 보는 동안만 싣는다 |
 | `motors` | 대시보드 · 센서 (`status.motors` · `power`를 채운다) | 모터 상태 |
 | `imu` | 센서 (`status.imu`를 채운다) | IMU |
 | `map` | 지도 작성 · 자율 주행 | `tf2_echo` 자식 프로세스 (`pose.map` · 위치 추정) |
@@ -657,6 +660,8 @@ ros2 launch: bringup · Cartographer · Nav2 (+ lekiwi_nav2_motor_guard)
 
 `status.teleop_arm` (팔 원격 조작, 3장 ⑥): `is_follower_present` (그래프에 `lekiwi_follower_arm_node`), `arm_ready` (`lekiwi/motor/arm_ready`, 모르면 null), `follower` (`lekiwi/arm/status`의 `state` `idle` · `ramping` · `following` · `error`, `reason`, `robot_id`, `diffs`, `ramp_progress`, `warnings`. 2초 안에 온 것만), `follower_age` [s], `joints` (`lekiwi/arm/state` 관절 → LeRobot 단위), `is_session_active`, `blocked_reason` (팔 시작을 막는 이유, 되면 null), `leader` (`is_relaying` 지금 `lekiwi/arm/goal`을 보내는지, `age` 마지막 리더 값 뒤 [s]. PC 에이전트 연결 · 주기는 2b에서 더한다), `estop` (마지막 비상 정지의 팔 토크 끄기: `state` `pending` · `ok` · `failed` · `unavailable`, `message`, `time`), `is_torque_maybe_on` (이 게이트웨이가 켠 팔 토크의 끄기를 아직 확인하지 못했다), `rest` (로봇 끄기 전 팔 접기, 3장 ⑦: `state` `idle` · `resting` · `rested` · `failed`, `reason` 실패 이유 · `rested`의 팔로워 경고, `time`). `arm_ready` · `follower` · `joints`는 `arm` 묶음을 구독하는 동안만 있다. `follower.state`에는 `resting` · `rested`도 온다.
 
+`status.zmq_host` (PC(ZMQ) 세션, `lekiwi_zmq_host`가 `lekiwi/zmq_host/status`로 바뀔 때 + 1 Hz): `session` (`idle` · `active` · `blocked`, 마지막으로 받은 지 5초가 넘으면 `unknown`), `reason`, `clients`, `client_ip`, `age` (마지막으로 받은 뒤 [s]). 받은 적 없으면 null. `active`면 7장 표대로 막는다.
+
 `status.exploration` (자동 주행 맵 생성, 4장): `state` (`idle` · `starting` 둘러보기 · `exploring` · `waiting` 센서를 기다림 · `saving` 자동 저장 · `done` · `stopped`), `reason` (끝난 · 기다리는 이유), `started_at` · `elapsed` [s], `explored_area` [m²] (본 빈 바닥), `frontiers` (남은 프런티어 수), `target` `{x, y}` · `path` `[x0, y0, …]` (map 프레임, 최대 200점), `saved_map` (자동 저장한 지도 파일).
 
 ### REST API
@@ -675,17 +680,17 @@ ros2 launch: bringup · Cartographer · Nav2 (+ lekiwi_nav2_motor_guard)
 | POST `/api/control/release` | `{}` | 권한 | 권한 놓기 |
 | POST `/api/motor/power` | `{"enabled": true}` | 권한 | 주행 켜기 · 끄기 (켜기는 서비스를 최대 2초 찾고 ready를 최대 5초 기다린다) |
 | POST `/api/estop` | `{}` | 누구나 | 비상 정지 |
-| POST `/api/process/start` | `{"name", "options"}` | 권한 | `bringup` `{use_camera}` · `mapping` `{}` · `navigation` `{map: "<파일>.yaml"}` |
-| POST `/api/process/stop` | `{"name", "force"?}` | 권한 | 웹에서 켠 것 · 터미널에서 켠 것 모두 끈다. 로봇은 이 게이트웨이가 켠 팔 토크가 남아 있을 수 있으면 먼저 팔을 접고 끈다 (최대 약 12초, 못 접으면 409). `force: true`면 접지 않고 팔 힘을 뺀 뒤 끈다 (3장 ⑦) |
+| POST `/api/process/start` | `{"name", "options"}` | 권한 | `bringup` `{use_camera}` · `mapping` `{}` · `navigation` `{map: "<파일>.yaml"}` (자율 주행은 PC(ZMQ) 조작 중이면 409) |
+| POST `/api/process/stop` | `{"name", "force"?}` | 권한 | 웹에서 켠 것 · 터미널에서 켠 것 모두 끈다. 로봇은 팔 토크가 켜져 있을 수 있으면 (이 게이트웨이가 켬 · `arm_ready` true) 먼저 팔을 접고 끈다 (최대 약 12초, 못 접으면 409). `force: true`면 접지 않고 팔 힘을 뺀 뒤 끈다 (3장 ⑦) |
 | POST `/api/map/save` | `{}` | 권한 | 지도 작성 중 지도 저장 |
-| POST `/api/explore/start` | `{}` | 권한 | 자동 주행 맵 생성 시작 (지도 작성 중, 이 권한으로 주행을 켰을 때. 4장) |
+| POST `/api/explore/start` | `{}` | 권한 | 자동 주행 맵 생성 시작 (지도 작성 중, 이 권한으로 주행을 켰을 때, PC(ZMQ) 조작 중이 아닐 때. 4장) |
 | POST `/api/explore/stop` | `{}` | 권한 | 자동 주행 멈춤 (토크는 켜진 채) |
 | POST `/api/nav/initial_pose` | `{"x", "y", "yaw"}` | 권한 | 초기 위치 (map 프레임) |
 | POST `/api/nav/goal` | `{"x", "y", "yaw"}` | 권한 | 목표 (새 목표는 이전 것을 바꾼다) |
 | POST `/api/nav/cancel` | `{}` | 연결된 화면 | Nav2 목표 모두 취소 (RViz 등 다른 곳에서 보낸 것도) |
 | POST `/api/nav/speed` | `{"percent": 25}` | 권한 | 자율 주행 속도: Nav2 최고 속도의 10~100 % (정수). 자율 주행이 꺼져 있어도 받는다 (5장) |
 | POST `/api/odom/reset` | `{}` | 권한 | odom 원점으로 (지도 작성 · 자율 주행 중에는 거절) |
-| POST `/api/arm/start` | `{}` | 권한 | 팔 원격 조작 시작: 팔 토크 켬 · 세션 (조건은 3장 ⑥. 최대 약 10초) |
+| POST `/api/arm/start` | `{}` | 권한 | 팔 원격 조작 시작: 팔 토크 켬 · 세션 (조건은 3장 ⑥, PC(ZMQ) 조작 중이면 409. 최대 약 10초) |
 | POST `/api/agent/approve` | `{"agent_session"}` | 권한 | PC 에이전트의 리더 값을 쓰도록 허락 (`status.agent.agent_session`과 같아야 한다. 붙은 에이전트가 없거나 다르면 409, 3장 ⑧) |
 | POST `/api/agent/unapprove` | `{}` | 권한 | 허락을 거둔다 |
 | POST `/api/agent/leader_connect` | `{"port", "calibration_id"}` | 권한 | 에이전트에 리더암을 열라고 한다 (에이전트가 알린 포트 · 보정 id만, 아니면 400) |
@@ -696,8 +701,9 @@ ros2 launch: bringup · Cartographer · Nav2 (+ lekiwi_nav2_motor_guard)
 | POST `/api/calibration/leader/from_motors` · `/start` | `{"calibration_id", "port"?}` | 권한 | 같음 |
 | POST `/api/arm/stop` | `{}` | 권한 | 팔 원격 조작 멈춤 (팔은 토크를 켠 채 유지) |
 | POST `/api/arm/relax` | `{}` | 권한 | 팔 힘 빼기: 세션을 닫고 팔 토크 끔 (편 팔은 떨어진다) |
+| POST `/api/arm/fold` | `{}` | 권한 | 팔 접고 힘 빼기: 세션을 닫고 접은 뒤 팔 토크 끔 (최대 약 10초, 3장 ⑥). 접은 자세가 없거나 못 접으면 409 (팔은 그대로) |
 | POST `/api/network/scan` | `{}` | 연결된 화면 | 와이파이 검색 (최대 15초). AP 모드 · 전환 중이면 거절 |
-| POST `/api/network/connect` | `{"ssid", "password", "confirm": true}` | 권한 | 공유기 연결 · 처음 등록 (6-3) |
+| POST `/api/network/connect` | `{"ssid", "password", "confirm": true}` | 권한 | 공유기 연결 · 처음 등록 (6-3). 연결 · AP 켜기 · 끄기 · 설정은 PC(ZMQ)가 조작 중이면 409 (7장) |
 | POST `/api/network/ap_on` · `/api/network/ap_off` | `{"confirm": true}` | 권한 | AP 켜기 · 공유기로 돌아가기 (저장된 공유기가 없으면 503) |
 | POST `/api/network/ap_config` | `{"ssid", "password", "confirm": true}` | 권한 | AP 이름 · 비밀번호 바꾸기 |
 

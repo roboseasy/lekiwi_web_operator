@@ -180,6 +180,13 @@ class RobotApi(Protocol):
 		"""(막힘, 최대 약 13 s) 팔 힘 빼기 (조작 권한 필요): 세션을 닫고 팔 토크를 끈다 (편 팔은
 		떨어진다). 도는 팔 시작이 있으면 끝난 뒤에 끈다."""
 
+	def arm_fold(self, client_id: str) -> CommandResult:
+		"""(막힘, 최대 약 10 s) 팔 접고 힘 빼기 (조작 권한 필요): 세션을 닫고 lekiwi/arm/rest → rested →
+		arm_torque false. 접은 자세가 없거나 못 접으면 conflict 와 이유 (팔은 그대로)."""
+
+	def zmq_host_blocked(self) -> str | None:
+		"""PC(ZMQ) 세션 (status.zmq_host) 이 active 면 그 이유 (네트워크 전환 등을 막는다), 아니면 None."""
+
 	# ── 기능 (launch) ────────────────────────────────────
 	def start_process(self, client_id: str, name: str, options: dict) -> CommandResult:
 		"""bringup {'use_camera': bool} · mapping {} · navigation {'map': '<파일 이름>.yaml'}."""

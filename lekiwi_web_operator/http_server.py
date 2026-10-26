@@ -352,6 +352,8 @@ class OperatorRequestHandler(BaseHTTPRequestHandler):
 			return robot.arm_stop(client_id)
 		if path == '/api/arm/relax':
 			return robot.arm_relax(client_id)
+		if path == '/api/arm/fold':
+			return robot.arm_fold(client_id)
 		if path in NETWORK_POSTS:
 			# 보기 전용은 다른 PC 에서 돈다: 그 PC 의 와이파이를 보거나 바꾸지 않는다
 			if robot.get_info().get('is_read_only'):
@@ -396,7 +398,8 @@ class OperatorRequestHandler(BaseHTTPRequestHandler):
 		if not all(isinstance(value, str) for value in values):
 			return error_result('bad_request', f'{" 와 ".join(fields)} 는 문자열이어야 합니다')
 		try:
-			reason = network_switch_block(robot.get_status())
+			# PC(ZMQ) 가 조작 중이어도: 망이 바뀌면 PC 명령이 끊긴 채 팔 · 바퀴가 남는다
+			reason = network_switch_block(robot.get_status()) or robot.zmq_host_blocked()
 		except Exception:
 			logger.exception('네트워크를 바꾸기 전에 로봇 상태를 읽지 못했습니다')
 			reason = STATUS_UNKNOWN_REASON

@@ -375,7 +375,11 @@ class OperatorNode(QuietNode):
 		self._bad_conversions: set[str] = set()   # 읽지 못한 메시지가 있었던 토픽 (경고는 한 번)
 		self._motor_ready: bool | None = None
 		self._ready_seq = 0
-		self._arm_ready: bool | None = None   # 'arm' 묶음을 구독하는 동안만
+		self._arm_ready: bool | None = None   # 늘 구독한다 (상태에는 'arm' 묶음을 구독하는 동안만 보인다)
+		# lekiwi/zmq_host/status: (session · reason · clients · client_ip, 받은 time.monotonic()), 받은 적 없으면 None
+		self._zmq_host: tuple[dict, float] | None = None
+		self._has_warned_zmq_host = False
+		self._estop_latched: bool | None = None   # (ROS 스레드만) 마지막으로 보낸 estop_latched
 		self._arm_registers: dict | None = None   # 'calibration' 묶음을 구독하는 동안만
 		self._has_arm_driver = False   # lekiwi/motor/arm_ready 발행자가 있다 (드라이버 팔 쓰기 켬)
 		self._scan_cache: dict | None = None
@@ -427,6 +431,12 @@ class OperatorNode(QuietNode):
 		self.create_subscription(
 			Bool, config.MOTOR_READY_TOPIC, self.motor_ready_callback, LATCHED_QOS,
 		)
+		# 바뀔 때만 오는 latched 값: 늘 받는다 (로봇 끄기 전 접기 · 보정이 누가 켠 팔 토크든 안다)
+		self.create_subscription(Bool, config.ARM_READY_TOPIC, self.arm_ready_callback, LATCHED_QOS)
+		# PC(ZMQ) 세션 (1 Hz): 팔 시작 · 자율 주행 · 보정 · 네트워크 전환을 막는다
+		self.create_subscription(
+			String, config.ZMQ_HOST_STATUS_TOPIC, self.zmq_host_callback, LATCHED_QOS,
+		)
 		# map_server 는 transient_local, cartographer 는 volatile 로 발행한다
 		self.create_subscription(OccupancyGrid, config.MAP_TOPIC, self.map_callback, LATCHED_QOS)
 		self.create_subscription(OccupancyGrid, config.MAP_TOPIC, self.map_callback, VOLATILE_QOS)
@@ -439,6 +449,7 @@ class OperatorNode(QuietNode):
 		self._arm_rest_client: Client | None = None
 		self._initial_pose_publisher: Any = None
 		self._arm_goal_publisher: Any = None
+		self._estop_latched_publisher: Any = None
 		if not is_read_only:
 			self._power_client = self.create_client(SetBool, config.MOTOR_POWER_SERVICE)
 			self._reset_client = self.create_client(Trigger, config.RESET_ODOMETRY_SERVICE)
@@ -452,6 +463,11 @@ class OperatorNode(QuietNode):
 			self._arm_goal_publisher = self.create_publisher(
 				JointState, config.ARM_GOAL_TOPIC, qos_profile_sensor_data,
 			)
+			# lekiwi_zmq_host 가 PC 세션 시작을 거절하는 데 쓴다. 시작할 때 false (걸림은 이 프로세스 안에만 있다)
+			self._estop_latched_publisher = self.create_publisher(
+				Bool, config.ESTOP_LATCHED_TOPIC, LATCHED_QOS,
+			)
+			self.publish_estop_latched(False)
 
 	# ── 명령 큐 (아무 스레드 → ROS 스레드) ─────────────────
 	def post(self, function: Callable[..., Any], *args: Any) -> concurrent.futures.Future:
@@ -667,9 +683,21 @@ class OperatorNode(QuietNode):
 		return self._call(self._arm_rest_client, Trigger.Request())
 
 	def arm_ready(self) -> bool | None:
-		"""(아무 스레드) lekiwi/motor/arm_ready 마지막 값. 'arm' 묶음을 구독하지 않으면 None."""
+		"""(아무 스레드) lekiwi/motor/arm_ready 마지막 값 (늘 구독한다). 받은 적 없거나 드라이버가 사라졌으면 None."""
 		with self._lock:
 			return self._arm_ready
+
+	def publish_estop_latched(self, is_latched: bool) -> None:
+		"""(ROS 스레드) lekiwi/safety/estop_latched 를 바뀔 때만 보낸다. 보기 전용이면 아무것도 하지 않는다."""
+		if self._estop_latched_publisher is None or is_latched == self._estop_latched:
+			return
+		self._estop_latched = is_latched
+		self._estop_latched_publisher.publish(Bool(data=is_latched))
+
+	def zmq_host_status(self) -> tuple[dict, float] | None:
+		"""(아무 스레드) lekiwi/zmq_host/status 마지막 값과 받은 time.monotonic(). 받은 적 없으면 None."""
+		with self._lock:
+			return self._zmq_host
 
 	def has_arm_driver(self) -> bool:
 		"""(아무 스레드) lekiwi/motor/arm_ready 발행자 (팔 쓰기를 켠 드라이버) 가 있는지 (그래프, 1 Hz)."""
@@ -918,7 +946,7 @@ class OperatorNode(QuietNode):
 				return []
 			return [self.create_subscription(
 				ArmRegisters, config.ARM_REGISTERS_TOPIC, self.arm_registers_callback, LATCHED_QOS)]
-		if stream == 'arm':   # 상태 30 Hz · 관절 20 Hz 는 raw 로 받아 상태를 만들 때 푼다. arm_ready 는 바뀔 때만
+		if stream == 'arm':   # 상태 30 Hz · 관절 20 Hz 는 raw 로 받아 상태를 만들 때 푼다 (arm_ready 는 늘 받는다)
 			return [
 				self.create_subscription(
 					String, config.ARM_STATUS_TOPIC, lambda raw: self._store('arm_status', raw), qos,
@@ -927,9 +955,6 @@ class OperatorNode(QuietNode):
 				self.create_subscription(
 					JointState, config.ARM_STATE_TOPIC, lambda raw: self._store('arm_state', raw), qos,
 					raw=True,
-				),
-				self.create_subscription(
-					Bool, config.ARM_READY_TOPIC, self.arm_ready_callback, LATCHED_QOS,
 				),
 			]
 		if stream in RAW_STREAMS:
@@ -947,8 +972,6 @@ class OperatorNode(QuietNode):
 
 	def _forget_stream_locked(self, stream: str) -> None:
 		"""구독을 지운 묶음의 마지막 값 · 수신 기록을 지운다 (잠금 안)."""
-		if stream == 'arm':
-			self._arm_ready = None
 		if stream == 'calibration':
 			self._arm_registers = None
 		for topic, owner in TOPIC_STREAMS.items():
@@ -996,9 +1019,30 @@ class OperatorNode(QuietNode):
 			self._arm_registers = None
 
 	def arm_ready_callback(self, msg: Bool) -> None:
-		"""lekiwi/motor/arm_ready ('arm' 묶음을 구독하는 동안)."""
+		"""lekiwi/motor/arm_ready (늘 구독)."""
 		with self._lock:
 			self._arm_ready = bool(msg.data)
+
+	def zmq_host_callback(self, msg: String) -> None:
+		"""lekiwi/zmq_host/status JSON → session · reason · clients · client_ip (형이 다른 값은 None).
+		읽지 못한 메시지는 버리고 경고는 한 번만."""
+		try:
+			data = json.loads(msg.data)
+			if not isinstance(data, dict):
+				raise ValueError('JSON 객체가 아닙니다')
+		except ValueError as error:
+			if not self._has_warned_zmq_host:
+				self._has_warned_zmq_host = True
+				logger.warning('%s 를 읽지 못해 버립니다: %s', config.ZMQ_HOST_STATUS_TOPIC, error)
+			return
+		clients = data.get('clients')
+		status = {
+			**{key: data[key] if isinstance(data.get(key), str) else None
+				for key in ('session', 'reason', 'client_ip')},
+			'clients': clients if isinstance(clients, int) and not isinstance(clients, bool) else None,
+		}
+		with self._lock:
+			self._zmq_host = (status, time.monotonic())
 
 	def tf_static_callback(self, msg: TFMessage) -> None:
 		"""/tf_static (라이다 장착 위치 등)."""
@@ -1159,7 +1203,8 @@ class OperatorNode(QuietNode):
 			)
 			arm_seen = self._last_seen.get('arm_status')
 			arm = {
-				'ready': self._arm_ready, 'has_driver': self._has_arm_driver,
+				'ready': self._arm_ready if 'arm' in self._subscribed_streams else None,
+				'has_driver': self._has_arm_driver,
 				'status_age': None if arm_seen is None else round(now - arm_seen, 2),
 			}
 			ready = self._motor_ready

@@ -21,6 +21,8 @@
 끄고, 나머지는 켠 채 둔다 (드라이버가 마지막 목표를 유지해 팔이 떨어지지 않는다). 세션 중에는 자율 주행 ·
 자동 주행 맵 생성 시작을 거절한다. 팔 토크 켜기는 비상 정지 번호를 본 그 _lock 안에서 ROS 큐에 넣는다:
 그 뒤의 비상 정지가 넣는 끄기는 같은 큐 · 같은 서비스 클라이언트로 늘 그 뒤에 간다.
+PC(ZMQ) 세션 (lekiwi_zmq_host 의 lekiwi/zmq_host/status) 이 active 면 팔 시작 · 자율 주행 · 자동 주행 맵 생성 ·
+팔로워 보정 · 네트워크 전환을 거절한다. 비상 정지 걸림은 lekiwi/safety/estop_latched 로 알린다 (그 노드가 본다).
 ROS 는 start() 에서 처음 불러와, ROS 없이도 이 모듈을 import 할 수 있다.
 """
 
@@ -175,6 +177,10 @@ ARM_DRIVER_GONE_STOP_MESSAGE: Final[str] = (
 	'모터 드라이버가 없어 팔을 접거나 팔 토크를 끄지 못한 채 로봇을 끕니다. 팔이 굳어 있으면 주 전원을 끄세요'
 )
 ARM_FORCE_HINT: Final[str] = '팔을 손으로 받치고 ‘그래도 끄기’로 팔 힘을 뺀 뒤 끌 수 있습니다'
+# 팔 접고 힘 빼기 (POST /api/arm/fold)
+ARM_FOLDING_MESSAGE: Final[str] = '팔을 접습니다'
+ARM_FOLDED_MESSAGE: Final[str] = '팔을 접고 힘을 뺐습니다'
+ARM_ALREADY_RELAXED_MESSAGE: Final[str] = '팔 힘이 이미 빠져 있습니다'
 
 
 def _is_status_fresh(arm: dict) -> bool:
@@ -470,8 +476,29 @@ class RobotService:
 				'rest': arm_rest,
 			},
 			'calibration': {'follower': self._calibration.status(arm['status'])},
+			'zmq_host': self.zmq_host_status(),
 			'warnings': self._warnings(snapshot, node_names, others, base_count),
 		}
+
+	def zmq_host_status(self) -> dict | None:
+		"""status.zmq_host: lekiwi_zmq_host 의 PC 세션 {session, reason, clients, client_ip, age [s]}.
+		받은 적 없으면 None, ZMQ_HOST_STATUS_MAX_AGE 넘게 안 왔으면 session 이 'unknown'."""
+		received = None if self._node is None else self._node.zmq_host_status()
+		if received is None:
+			return None
+		status, received_at = received
+		age = round(time.monotonic() - received_at, 2)
+		if age > config.ZMQ_HOST_STATUS_MAX_AGE:
+			status = {**status, 'session': 'unknown'}
+		return {**status, 'age': age}
+
+	def zmq_host_blocked(self) -> str | None:
+		"""PC(ZMQ) 세션이 active 면 그 이유 (팔 시작 · 자율 주행 · 자동 주행 맵 생성 · 팔로워 보정 · 네트워크
+		전환을 막는다), 아니면 None (unknown 은 막지 않는다)."""
+		status = self.zmq_host_status()
+		if status is None or status['session'] != 'active':
+			return None
+		return config.ZMQ_HOST_ACTIVE_MESSAGE.format(client_ip=status['client_ip'] or '-')
 
 	def get_scan(self) -> dict | None:
 		"""스캔 점 (base_footprint) 과 그때의 자세. 시작 전이거나 라이다 TF 를 모르면 None."""
@@ -715,6 +742,33 @@ class RobotService:
 			return error_result('unavailable' if state == 'unavailable' else 'failed', message)
 		self._emit('info', ARM_RELAXED_MESSAGE)
 		return ok_result(ARM_RELAXED_MESSAGE)
+
+	def arm_fold(self, client_id: str) -> CommandResult:
+		"""(막힘, 최대 약 10 s) 팔 접고 힘 빼기 (holder): 세션을 닫고 로봇 끄기 전 접기와 같은 순서
+		(lekiwi/arm/rest → rested → arm_torque false). 접은 자세가 없거나 못 접으면 conflict 와 이유 (팔 토크는
+		끄지 않는다: 팔은 그 자리를 유지). 팔 토크가 이미 꺼져 있으면 접지 않고 ok."""
+		denied = self._check_operator(client_id)
+		if denied is not None:
+			return denied
+		with self._lock:
+			self._arm_stop_seq += 1   # 도는 팔 시작은 세션을 열지 않는다
+		self._clear_arm_session()
+		if not self._arm_lock.acquire(timeout=ARM_START_MAX_TIME):
+			return error_result('conflict', '팔을 시작하는 중입니다. 잠시 뒤 다시 누르세요')
+		try:
+			with self._lock:
+				is_maybe_on = self._is_arm_maybe_on
+			if not is_maybe_on and self._require_node().arm_ready() is False:
+				return ok_result(ARM_ALREADY_RELAXED_MESSAGE)
+			deadline = time.monotonic() + 2 * config.MOTOR_SERVICE_TIMEOUT + config.ARM_REST_TIMEOUT
+			reason = self._rest_arm(deadline, ARM_FOLDING_MESSAGE)
+		finally:
+			self._arm_lock.release()
+		if reason is not None:
+			message = f'팔을 접지 못했습니다: {reason}'
+			self._emit('error', message)
+			return error_result('conflict', message)
+		return ok_result(ARM_FOLDED_MESSAGE)
 
 	def calibration_follower(self, client_id: str, action: str, body: dict) -> CommandResult:
 		"""(막힘일 수 있음) 보정 탭 팔로워 명령 (follower_calibration.FollowerCalibration.command)."""
@@ -1007,6 +1061,13 @@ class RobotService:
 			if node.request_speed_limits(self._limits_callback):
 				self._limits_requested_at = now
 		self._sync_streams()
+		self._publish_estop_latched_in_ros()   # 바뀔 때만 보낸다 (놓친 길이 있어도 1초 안에 맞춘다)
+
+	def _publish_estop_latched_in_ros(self) -> None:
+		"""(ROS 스레드) 지금 비상 정지 걸림을 lekiwi/safety/estop_latched 로 (바뀔 때만)."""
+		with self._lock:
+			is_latched = self._estop is not None
+		self._node.publish_estop_latched(is_latched)
 
 	def _watch_guard(self, node_names: frozenset[str]) -> None:
 		"""(ROS 스레드) 자율 주행 중 감독 도구가 보였다가 사라지면 바로 목표를 막고, Nav2 노드가
@@ -1088,6 +1149,7 @@ class RobotService:
 		"""0 발행 · 목표 취소 · 조작 노드 내림 (감독 도구가 토크를 다시 켜지 못하게) · 바퀴 토크 끔 ·
 		팔 토크 끔 (바퀴 다음에, 기다리지 않는다)."""
 		self._node.publish_cmd_vel(ZERO_COMMAND)
+		self._publish_estop_latched_in_ros()
 		self._node.cancel_goal()
 		self._node.set_view_node(False)
 		self._power_off_async(None)
@@ -1159,13 +1221,12 @@ class RobotService:
 	def _warn_if_arm_torqued(self) -> None:
 		"""세션 없이 팔 토크가 켜져 있을 수 있으면 (arm_ready true · 이 게이트웨이가 켜고 끄기를 확인하지 못함)
 		자율 주행 · 자동 주행 맵 생성 시작을 알린다. 막지는 않는다 (세션 중에는 이미 거절했다)."""
-		with self._lock:
-			is_maybe_on = self._is_arm_maybe_on
-		if is_maybe_on or self._require_node().arm_ready() is True:
+		if self._is_arm_torqued():
 			self._emit('warn', ARM_TORQUED_MESSAGE)
 
 	def _rest_arm_before_bringup_stop(self, is_forced: bool) -> CommandResult | None:
-		"""(막힘) 로봇 끄기 앞: 이 게이트웨이가 켠 팔 토크가 남아 있을 수 있으면 세션을 닫고 팔을 접어 끈다
+		"""(막힘) 로봇 끄기 앞: 팔 토크가 켜져 있을 수 있으면 (이 게이트웨이가 켬 · 누가 켰든 arm_ready true,
+		_is_arm_torqued) 세션을 닫고 팔을 접어 끈다
 		(is_forced 면 접지 않고 힘을 뺀다). 끌 수 있으면 None, 아니면 conflict (이벤트로도 알린다).
 
 		로봇이 꺼져 있거나 processes 가 어차피 거절할 때 (지도 작성 · 자율 주행 중) 는 팔을 건드리지 않는다.
@@ -1174,16 +1235,16 @@ class RobotService:
 			return None
 		if any(self._processes.state(name) in ACTIVE_STATES for name in ('mapping', 'navigation')):
 			return None
+		if not self._is_arm_torqued():
+			return None
 		with self._lock:
-			if not self._is_arm_maybe_on:
-				return None
 			self._arm_stop_seq += 1   # 도는 팔 시작은 세션을 열지 않는다
 		self._clear_arm_session()
 		if not self._arm_lock.acquire(timeout=ARM_START_MAX_TIME):
 			return error_result('conflict', '팔을 시작하는 중입니다. 잠시 뒤 다시 누르세요')
 		try:
-			with self._lock:   # 두 번 누름: 앞의 끄기가 이미 팔을 접고 껐을 수 있다
-				is_maybe_on = self._is_arm_maybe_on
+			# 두 번 누름: 앞의 끄기가 이미 팔을 접고 껐을 수 있다
+			is_maybe_on = self._is_arm_torqued()
 			reason = None
 			if not is_maybe_on:
 				pass
@@ -1209,12 +1270,12 @@ class RobotService:
 		return error_result('conflict', message)
 
 	def _rest_arm_before_shutdown(self) -> None:
-		"""(막힘, 최대 ARM_SHUTDOWN_REST_TIME) 게이트웨이 종료: 웹에서 켠 로봇이 돌고 이 게이트웨이가 켠 팔
-		토크가 남아 있을 수 있으면 팔을 접어 끈다. 못 접으면 힘을 빼지 않는다 (지켜보는 사람 없이 떨어뜨리지 않게)."""
+		"""(막힘, 최대 ARM_SHUTDOWN_REST_TIME) 게이트웨이 종료: 웹에서 켠 로봇이 돌고 팔 토크가 켜져 있을 수
+		있으면 (_is_arm_torqued) 팔을 접어 끈다. 못 접으면 힘을 빼지 않는다 (지켜보는 사람 없이 떨어뜨리지 않게)."""
 		bringup = self._processes.status()['bringup']
-		with self._lock:
-			is_maybe_on = self._is_arm_maybe_on
-		if not (is_maybe_on and bringup['is_managed'] and bringup['state'] in ('starting', 'running')):
+		if not (bringup['is_managed'] and bringup['state'] in ('starting', 'running')):
+			return
+		if not self._is_arm_torqued():
 			return
 		deadline = time.monotonic() + config.ARM_SHUTDOWN_REST_TIME
 		reason = '팔 시작이 끝나지 않았습니다'
@@ -1226,9 +1287,20 @@ class RobotService:
 		if reason is not None:
 			self._emit('warn', f'게이트웨이 종료: 팔을 접지 못해 팔은 토크를 켠 채 둡니다: {reason}')
 
-	def _rest_arm(self, deadline: float) -> str | None:
+	def _is_arm_torqued(self) -> bool:
+		"""팔 토크가 켜져 있을 수 있다: 이 게이트웨이가 켜고 끄기를 확인하지 못했거나, 누가 켰든 (PC(ZMQ) ·
+		다른 프로그램) lekiwi/motor/arm_ready 가 true."""
+		with self._lock:
+			is_maybe_on = self._is_arm_maybe_on
+		return is_maybe_on or self._require_node().arm_ready() is True
+
+	def _rest_arm(self, deadline: float, message: str = ARM_RESTING_MESSAGE) -> str | None:
 		"""(막힘, _arm_lock 안, 세션은 닫은 뒤) lekiwi/arm/rest → status 가 rested (ARM_REST_TIMEOUT 까지) →
 		arm_torque false 확인. 모두 deadline 안에. status.teleop_arm.rest 에 적는다.
+
+		Args:
+			deadline: time.monotonic() 기준 끝 시각.
+			message: 시작할 때 알릴 문장 (로봇 끄기 앞 · 팔 접고 힘 빼기).
 
 		Returns:
 			못 했으면 그 이유 (한국어, 팔 토크는 끄지 않았다), 됐으면 None. 그사이 비상 정지 · 팔 힘 빼기로
@@ -1236,7 +1308,7 @@ class RobotService:
 		"""
 		node = self._require_node()
 		self._set_arm_rest('resting', None)
-		self._emit('info', ARM_RESTING_MESSAGE)
+		self._emit('info', message)
 		reason = None
 		if config.FOLLOWER_ARM_NODE not in node.graph()[0]:
 			reason = '팔 노드가 없어 팔을 접을 수 없습니다'
@@ -1258,8 +1330,10 @@ class RobotService:
 		is_off = False
 		warnings: list[str] = []
 		while reason is None:
+			# 그사이 꺼졌다 (비상 정지 · 팔 힘 빼기): 이 게이트웨이가 켠 것은 끄기 확인, 남이 켠 것은 arm_ready
 			with self._lock:
 				is_off = not self._is_arm_maybe_on
+			is_off = is_off and node.arm_ready() is not True
 			arm = node.snapshot()['arm']
 			status = arm['status'] or {}
 			if is_off or (_is_status_fresh(arm) and status.get('state') == 'rested'):
@@ -1505,6 +1579,9 @@ class RobotService:
 			is_arm_active = self._arm_session is not None
 		if is_arm_active:   # 팔을 편 채 스스로 움직이지 않게 (탐색기는 접은 팔 모양만 안다)
 			return ARM_SESSION_MESSAGE
+		zmq_blocked = self.zmq_host_blocked()
+		if zmq_blocked is not None:   # PC 가 팔 · 바퀴를 움직이는 중
+			return zmq_blocked
 		if self._processes.state('mapping') not in RUNNING_STATES:
 			return '지도 작성이 실행 중일 때 시작할 수 있습니다'
 		if self._processes.status()['save_map']['state'] == 'running':
@@ -1556,6 +1633,9 @@ class RobotService:
 			is_arm_active = self._arm_session is not None
 		if is_arm_active:   # 겹쳐 시작한 팔은 조작 타이머가 닫는다 (_watch_arm)
 			return error_result('conflict', ARM_SESSION_MESSAGE)
+		zmq_blocked = self.zmq_host_blocked()
+		if zmq_blocked is not None:
+			return error_result('conflict', zmq_blocked)
 		map_path = map_files.resolve_map(config.map_dir(), map_name)
 		if map_path is None:
 			return error_result('bad_request', f'지도 파일을 찾을 수 없습니다: {map_name}')
@@ -1747,7 +1827,9 @@ class RobotService:
 			if self._estop_seq != estop_seq:
 				return False
 			self._estop = None
-			return True
+		if self._node is not None:   # 보낼 값은 ROS 스레드가 그때 읽는다 (비상 정지와 순서가 바뀌어도 맞게)
+			self._node.post(self._publish_estop_latched_in_ros)
+		return True
 
 	def _compute_allowed(self) -> tuple[bool, str | None]:
 		"""(is_allowed, blocked_reason). 그래프는 1 Hz 로 읽은 마지막 값."""
@@ -1869,6 +1951,9 @@ class RobotService:
 			return '자율 주행 중에는 팔을 시작할 수 없습니다'
 		if is_exploring:
 			return '자동 주행 맵 생성 중에는 팔을 시작할 수 없습니다'
+		zmq_blocked = self.zmq_host_blocked()
+		if zmq_blocked is not None:   # 리더 값과 PC 명령이 같은 lekiwi/arm/goal 로 겹치지 않게
+			return zmq_blocked
 		if config.FOLLOWER_ARM_NODE not in node_names:
 			return '팔 노드가 없습니다 (로봇 · 팔을 켜세요)'
 		if not arm['has_driver']:

@@ -60,6 +60,10 @@ ARM_STATUS_TOPIC: Final[str] = 'lekiwi/arm/status'
 # 팔로워가 팔을 접는다 (std_srvs/Trigger, 약 3 s 램프, status state resting → rested). 로봇을 끄기 전에 부른다
 ARM_REST_SERVICE: Final[str] = 'lekiwi/arm/rest'
 ARM_REGISTERS_TOPIC: Final[str] = 'lekiwi/motor/arm_registers'   # 드라이버가 읽은 팔 보정 레지스터 (transient_local)
+# 비상 정지 걸림 (std_msgs/Bool, transient_local): lekiwi_zmq_host 가 걸려 있으면 PC 세션 시작을 거절한다
+ESTOP_LATCHED_TOPIC: Final[str] = 'lekiwi/safety/estop_latched'
+# lekiwi_zmq_host 세션 (std_msgs/String JSON, transient_local, 바뀔 때 + 1 Hz): session · reason · clients · client_ip
+ZMQ_HOST_STATUS_TOPIC: Final[str] = 'lekiwi/zmq_host/status'
 MAP_TOPIC: Final[str] = 'map'
 PLAN_TOPIC: Final[str] = 'plan'
 INITIAL_POSE_TOPIC: Final[str] = 'initialpose'
@@ -155,6 +159,12 @@ ARM_LEADER_TIMEOUT: Final[float] = 0.5
 ARM_REST_TIMEOUT: Final[float] = 6.0         # [s] 팔을 접으라 한 뒤 status 가 rested 가 되기를 기다리는 시간
 # [s] 게이트웨이를 끌 때 웹에서 켠 로봇을 끄기 전에 팔을 접고 끄는 데 쓰는 시간 (못 접으면 팔은 그대로 둔다)
 ARM_SHUTDOWN_REST_TIME: Final[float] = 8.0
+
+# ── PC(ZMQ) 세션 (lekiwi_zmq_host) ───────────────────────
+# [s] 상태가 이만큼 안 오면 session 을 'unknown' 으로 본다 (노드는 1 Hz 로 보낸다). unknown 은 막지 않는다
+ZMQ_HOST_STATUS_MAX_AGE: Final[float] = 5.0
+# session 이 active 일 때 팔 시작 · 자율 주행 · 자동 주행 맵 생성 · 팔로워 보정 · 네트워크 전환을 막는 이유
+ZMQ_HOST_ACTIVE_MESSAGE: Final[str] = 'PC(ZMQ, {client_ip})가 조작 중입니다'
 
 # ── 자율 주행 속도 (SPEED_LIMIT_TOPIC, percentage) ───────
 # MPPI 가 vx · vy · wz 상한(lekiwi_ws nav2_params.yaml)에 percent / 100 을 곱한다 (가는 중인 목표에도 바로)

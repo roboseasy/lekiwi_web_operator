@@ -266,6 +266,9 @@ class FollowerCalibration:
 			return error_result('bad_request', 'robot_id 는 [A-Za-z0-9_-] 1~40 글자여야 합니다')
 		if action in ('middle', 'finish', 'cancel'):
 			return self._step(action)
+		zmq_blocked = self._robot.zmq_host_blocked()
+		if zmq_blocked is not None:   # PC(ZMQ) 가 팔을 움직이는 중: 모터 버스 · 보정을 바꾸지 않는다
+			return error_result('conflict', zmq_blocked)
 		# 되돌릴 값이 남아 있으면 지금 모터 값은 반쯤 쓴 보정일 수 있다: 그 값으로 파일 · 접은 자세를 만들지 않는다
 		if action in ('select', 'from_motors', 'rest_pose') and config.follower_restore_path().exists():
 			return error_result('conflict', '끊긴 보정의 복원이 남아 있습니다. 먼저 ‘복원’을 누르세요')
