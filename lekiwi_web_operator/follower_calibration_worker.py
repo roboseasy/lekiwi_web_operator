@@ -1,7 +1,7 @@
 """팔로워 (LeKiwi) 새로 보정 프로그램: 게이트웨이가 lerobot 이 든 python 으로 따로 켠다 (docs/calibration_plan.md).
 
-게이트웨이 패키지를 가져오지 않는다 (python 이 다르다). 보정 단계는 pc_agent/lekiwi_pc_agent/calibration.py
-(리더와 같은 코드, lerobot 0.6.0) 가 한다. 로봇 기능 (bringup) 을 끄고 팔 토크가 꺼진 뒤에만 켠다 (버스 주인이 없게).
+게이트웨이의 다른 모듈은 가져오지 않는다 (python 이 다르다). 보정 단계는 옆의 lerobot_calibration.py
+(PC 에이전트 저장소 lekiwi_pc_agent/calibration.py 의 사본 = 리더와 같은 코드, lerobot 0.6.0) 가 한다. 로봇 기능 (bringup) 을 끄고 팔 토크가 꺼진 뒤에만 켠다 (버스 주인이 없게).
 
 표준 입력 (게이트웨이 → 이 프로그램), JSON 한 줄씩:
 	{"cmd": "start", "port": "/dev/ttyACM0", "calibration_path": ".../lekiwi01.json",
@@ -29,10 +29,10 @@ import time
 from pathlib import Path
 from typing import Any, Final
 
-# 배포 폴더 (~/lekiwi_web_operator/) 의 pc_agent/ 에 보정 공용 모듈이 있다
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'pc_agent'))
+# 스크립트로 켜져도 패키지 이름으로 가져온다 (패키지 __init__ 은 __version__ 뿐이다)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from lekiwi_pc_agent import calibration  # noqa: E402
+from lekiwi_web_operator import lerobot_calibration as calibration  # noqa: E402
 
 RECORD_PERIOD: Final[float] = 1.0 / 50   # [s] 범위 재기 읽기
 STATUS_PERIOD: Final[float] = 0.1        # [s] 범위 재는 동안 알림

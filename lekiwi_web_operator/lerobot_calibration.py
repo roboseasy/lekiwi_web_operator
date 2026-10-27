@@ -1,8 +1,9 @@
 """lerobot 0.6.0 보정 순서를 화면 버튼 단계로 나눈 것 (docs/calibration_plan.md).
 
-리더 (노트북 PC 에이전트) 와 팔로워 (로봇 게이트웨이의 보정 프로그램) 가 같이 쓴다.
-그래서 lerobot · draccus · 표준 라이브러리 말고는 아무것도 가져오지 않는다
-(게이트웨이는 pc_agent/ 를 sys.path 에 넣고 `from lekiwi_pc_agent import calibration`).
+리더 (노트북 PC 에이전트) 와 팔로워 (로봇 게이트웨이의 보정 프로그램) 가 같은 코드를 쓴다: 이 파일은 PC 에이전트 저장소
+roboseasy/lekiwi_pc_agent 의 lekiwi_pc_agent/calibration.py 사본이다 (한쪽을 바꾸면 둘 다 바꾼다).
+팔로워 보정 프로그램 (follower_calibration_worker.py) 만 lerobot 이 든 python 으로 가져온다.
+그래서 lerobot · draccus · 표준 라이브러리 말고는 아무것도 가져오지 않는다.
 
 lerobot 의 SO101Leader.calibrate() · LeKiwi.calibrate() 와 같은 순서 · 같은 버스 메서드다.
 1. 토크 끔, Operating_Mode=POSITION (CalibrationSession 을 만들 때)

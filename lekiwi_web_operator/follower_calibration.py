@@ -57,7 +57,7 @@ STEP_LABELS: Final[dict[str, str]] = {'middle': '제로-포지션 위치 시키�
 BRINGUP_ON_STATES: Final[tuple[str, ...]] = ('starting', 'running', 'external')
 IDLE_SESSION: Final[dict] = {'state': 'idle', 'robot_id': None, 'joints': None, 'reason': None}
 MAX_JOINTS: Final[int] = 16
-MAX_FILES: Final[int] = 32   # status 에 넣는 보정 파일 수 (lekiwi_pc_agent.calibration.MAX_CALIBRATION_IDS 와 같다)
+MAX_FILES: Final[int] = 32   # status 에 넣는 보정 파일 수 (lerobot_calibration.MAX_CALIBRATION_IDS 와 같다)
 RESTORE_HINT: Final[str] = '모터 보정이 반쯤 쓰였을 수 있습니다. ‘복원’을 누르세요'
 REST_CLEARED_MESSAGE: Final[str] = (
 	'가운데가 바뀌어 접은 자세를 지웠습니다. 팔을 접은 자세로 두고 ‘접은 자세 저장’을 다시 누르세요')

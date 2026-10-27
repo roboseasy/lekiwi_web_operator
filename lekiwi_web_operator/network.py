@@ -156,7 +156,7 @@ def _parse_bss(block: str) -> dict:
 def parse_iw_scan(text: str) -> list[dict]:
 	"""`iw dev <if> scan` 출력 → SSID 마다 가장 센 신호 하나, 센 순서.
 
-	~/wifi_list.sh 와 같은 규칙: RSN → 'WPA2/3', WPA → 'WPA', Privacy → 'WEP', 아니면 '개방',
+	~/lekiwi_net/wifi_list.sh 와 같은 규칙: RSN → 'WPA2/3', WPA → 'WPA', Privacy → 'WEP', 아니면 '개방',
 	숨김 SSID 는 '(숨김)' (is_hidden=True, 이 이름으로는 연결할 수 없다).
 	"""
 	best: dict[str, dict] = {}
@@ -287,7 +287,7 @@ def _switch_problem(net_dir: Path) -> str | None:
 	missing = [name for name in NET_SCRIPTS if not os.access(net_dir / name, os.X_OK)]
 	if missing:
 		return (f'이 로봇에는 ~/{NET_DIR_NAME} 의 {", ".join(missing)} 가 없거나 실행할 수 없어 와이파이 · AP '
-			'모드를 바꿀 수 없습니다. 먼저 로봇을 NetworkManager 세대로 옮기세요 (robot_net/provision_ap_mode.sh)')
+			'모드를 바꿀 수 없습니다. 먼저 로봇을 NetworkManager 세대로 옮기세요 (lekiwi_net 저장소의 provision_ap_mode.sh)')
 	if (_run(['systemctl', 'is-active', 'NetworkManager']) or '').strip() != 'active':
 		return 'NetworkManager 가 켜져 있지 않아 와이파이 · AP 모드를 바꿀 수 없습니다'
 	if _run(['sudo', '-n', 'true']) is None:

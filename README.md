@@ -224,7 +224,7 @@ PC의 SO-101 리더암으로 르키위 팔을 움직이는 일의 게이트웨�
 
 ### ⑧ PC 에이전트 (리더암 프로그램, 게이트웨이 쪽)
 
-PC에 USB로 꽂은 SO-101 리더암을 읽는 프로그램(PC 에이전트, 따로 만든다)이 `ws://<로봇>:8080/agent`로 붙는다. 규약은 [`docs/agent_protocol.md`](docs/agent_protocol.md) (v1)다. 화면(텔레오퍼레이션)은 다른 작업에서 만든다.
+PC에 USB로 꽂은 SO-101 리더암을 읽는 프로그램(PC 에이전트, 저장소 [roboseasy/lekiwi_pc_agent](https://github.com/roboseasy/lekiwi_pc_agent))이 `ws://<로봇>:8080/agent`로 붙는다. 규약은 [`docs/agent_protocol.md`](https://github.com/roboseasy/lekiwi_pc_agent/blob/main/docs/agent_protocol.md) (그 저장소)다. 화면(텔레오퍼레이션)은 다른 작업에서 만든다.
 
 - **한 번에 하나.** 둘째 연결 · 보기 전용 게이트웨이는 `agent_rejected`를 받고 닫힌다. 붙은 뒤 2초 안에 맞는 `agent_hello`가 없거나, 그 뒤 읽을 수 있는 메시지가 2초 동안 하나도 없으면 닫는다 (에이전트는 0.5초마다 `heartbeat`. 바이트를 찔끔 보내는 것으로는 자리를 잡지 못한다). 메시지는 16 KiB까지.
 - **허락**: 조작 권한을 가진 화면이 `POST /api/agent/approve` `{"agent_session": <status.agent.agent_session>}`를 불러야 리더 값을 쓴다 (화면이 본 연결 번호가 지금 연결과 다르면 409: 그사이 다른 PC · 이름을 흉내 낸 연결로 바뀐 것을 허락하지 않게) (`/api/agent/unapprove`로 거둔다). 허락은 그 조작 권한에 묶인다. 권한이 끝나면 (놓음 · 끊김 · 넘겨줌) 다음 메시지(0.5초 안)에 거두고 `agent_unapproved`를 보낸다. 다시 받아도 다시 허락해야 한다. 연결이 끊겨도 60초 안에 같은 `token`으로 다시 붙으면 허락이 이어진다.
@@ -260,7 +260,7 @@ PC에 USB로 꽂은 SO-101 리더암을 읽는 프로그램(PC 에이전트, 따
 
 ### ⑨ 보정 (팔로워 · 리더, 게이트웨이 쪽)
 
-기획: [`docs/calibration_plan.md`](docs/calibration_plan.md). 화면은 `#/calibration` (다른 작업). 모든 명령은 조작 권한, 이름은 `[A-Za-z0-9_-]{1,40}`만.
+기획: [`docs/calibration_plan.md`](https://github.com/roboseasy/lekiwi_pc_agent/blob/main/docs/calibration_plan.md). 화면은 `#/calibration` (다른 작업). 모든 명령은 조작 권한, 이름은 `[A-Za-z0-9_-]{1,40}`만.
 
 | 팔로워 (로봇) | 하는 일 |
 |------|------|
@@ -268,7 +268,7 @@ PC에 USB로 꽂은 SO-101 리더암을 읽는 프로그램(PC 에이전트, 따
 | 고르기 `select {robot_id}` | 모터와 맞는 파일만 (레지스터를 모르면 503 `unavailable`: 로봇 기능을 켜야 한다, 읽을 수 없는 파일은 409). 게이트웨이 전용 `~/lekiwi_ws/arm_profile.yaml`의 `robot_id`를 바꾸고 (통째로 · 겹치지 않는 임시 파일 + fsync + 이름 바꾸기 · `robot_id: '<id>'`는 늘 작은따옴표, `rest_pose_ticks`도 늘 적는다: 없으면 `''` — rcl 은 빈 목록 `[]`을 버려 `robot_profile.yaml`의 tick 이 남는다) 켜져 있던 로봇 기능을 다시 켠다. 사람이 쓴 `robot_profile.yaml`은 읽기만 한다. 처음 쓸 때는 지금 값 (`robot_profile.yaml` · 팔로워가 알린 `robot_id` · `rest_pose_ticks`)에서 시작한다 |
 | 모터 값으로 만들기 `from_motors {robot_id}` | 레지스터 (로봇 기능이 켜져 있어야 한다) + 바퀴 lerobot 기본값 (`drive_mode 0 · homing_offset 0 · 0~4095`)으로 새 파일. 있는 이름 · 다른 보정이 도는 중에는 거절 |
 | 접은 자세 `rest_pose` | 지금 팔 tick (모터 상태 ID 1~6)을 `arm_profile.yaml`의 `rest_pose_ticks`로. 다음에 로봇 기능을 켤 때 팔로워가 읽는다 |
-| 새로 보정 `start {robot_id}` → `middle` → `finish` (또는 `cancel`) | 새 이름만 (있는 이름은 409). 로봇 기능을 끄고 (모터 버스 주인이 없게) 보정 프로그램 `lekiwi_web_operator/follower_calibration_worker.py`를 `~/lerobot060_venv/bin/python`으로 켠다 (`pc_agent/lekiwi_pc_agent/calibration.py`, lerobot 0.6.0 순서, 포트는 TIOCEXCL 로 혼자 연다). 팔 토크가 켜진 모터가 있으면 아무것도 쓰지 않고 오류 (`팔 토크가 켜져 있습니다 (...)`). 끝나면 파일 · `arm_profile.yaml`의 `robot_id`를 쓰고 **접은 자세를 지운다** (가운데가 바뀌어 예전 tick 은 다른 자세다: 다시 `rest_pose`). 보정 프로그램이 꺼진 것을 본 뒤에만 로봇 기능을 다시 켠다 (취소 · 오류도). 그동안 로봇 기능 켜기는 거절한다 |
+| 새로 보정 `start {robot_id}` → `middle` → `finish` (또는 `cancel`) | 새 이름만 (있는 이름은 409). 로봇 기능을 끄고 (모터 버스 주인이 없게) 보정 프로그램 `lekiwi_web_operator/follower_calibration_worker.py`를 `~/lerobot060_venv/bin/python`으로 켠다 (`lekiwi_web_operator/lerobot_calibration.py` = PC 에이전트 `lekiwi_pc_agent/calibration.py`의 사본, lerobot 0.6.0 순서, 포트는 TIOCEXCL 로 혼자 연다). 팔 토크가 켜진 모터가 있으면 아무것도 쓰지 않고 오류 (`팔 토크가 켜져 있습니다 (...)`). 끝나면 파일 · `arm_profile.yaml`의 `robot_id`를 쓰고 **접은 자세를 지운다** (가운데가 바뀌어 예전 tick 은 다른 자세다: 다시 `rest_pose`). 보정 프로그램이 꺼진 것을 본 뒤에만 로봇 기능을 다시 켠다 (취소 · 오류도). 그동안 로봇 기능 켜기는 거절한다 |
 | 되돌리기 `restore` | 지난 새로 보정이 되돌리지 못하고 끝났을 때 (전원 · 죽음 · 답 없음, `restore_pending`) 남은 예전 보정 값을 모터에 쓴다 (로봇 기능을 끄고 보정 프로그램으로). 다음 `start`도 먼저 되돌린다 |
 
 - 고르기 · 접은 자세 · 새로 보정 · 되돌리기는 팔 세션 · 팔 토크가 켜져 있을 수 있음 (`is_torque_maybe_on` · `arm_ready`) · 지도 작성 · 자율 주행 · 자동 주행 · 로봇 끄는 중 · 다른 보정 중에는 409. 고르기 · 모터 값으로 만들기 · 접은 자세 · 새로 보정 · 되돌리기는 PC(ZMQ)가 조작 중이어도 409 (`PC(ZMQ, <IP>)가 조작 중입니다`. 제로-포지션 · 끝내기 · 취소는 막지 않는다). 막는 것을 보고 바쁨을 거는 것은 한 번에 한다 (두 요청이 같이 지나가지 않는다).
@@ -385,7 +385,7 @@ Nav2도 **Pi에서** 돈다. ⚠️ 로봇이 스스로 움직인다. 처음에�
 
 ## 6. 와이파이 · AP 모드
 
-로봇의 무선(`wlan0`)은 **NetworkManager**가 맡고, 로봇의 `~/lekiwi_net/` 스크립트(`run_wifi.sh` · `run_ap.sh` · `set_ap.sh`)로 두 모드를 바꾼다. 게이트웨이는 이 스크립트를 `sudo -n`으로 뒤에서 부른다. 유선(`eth0`)은 어느 모드에서나 그대로다. 설계는 [AP 모드 기획서](docs/ap_mode_spec.md), 로봇을 이 방식으로 옮기고 되돌리는 법은 [robot_net/README.md](robot_net/README.md).
+로봇의 무선(`wlan0`)은 **NetworkManager**가 맡고, 로봇의 `~/lekiwi_net/` 스크립트(`run_wifi.sh` · `run_ap.sh` · `set_ap.sh`)로 두 모드를 바꾼다. 게이트웨이는 이 스크립트를 `sudo -n`으로 뒤에서 부른다. 유선(`eth0`)은 어느 모드에서나 그대로다. 설계는 [AP 모드 기획서](docs/ap_mode_spec.md), 스크립트와 로봇을 이 방식으로 옮기고 되돌리는 법은 [roboseasy/lekiwi_net](https://github.com/roboseasy/lekiwi_net) 저장소.
 
 | 모드 | 로봇 | 접속 | 인터넷 |
 |------|------|------|------|
@@ -394,7 +394,7 @@ Nav2도 **Pi에서** 돈다. ⚠️ 로봇이 스스로 움직인다. 처음에�
 
 **부팅 규칙:** 평소는 **공유기 우선**이다. 부팅하면 공유기에 붙고, 안 보이거나 못 붙으면 AP로 뜬다. 'AP 모드 켜기'는 **AP 고정**이라 재부팅해도 AP다. **한번 AP가 되면 (폴백이든 고정이든) 공유기가 다시 켜져도 AP에 남는다:** 감시해서 되돌리지 않는다 (AP에 붙은 폰을 운전 중에 끊을 수 있어서다). '공유기 모드로 돌아가기'를 누르거나 ssh로 `run_wifi`를 한다.
 
-로봇에 필요한 것: NetworkManager가 켜져 있고, `~/lekiwi_net/`에 `run_ap.sh` · `run_wifi.sh` · `set_ap.sh` · `nm_kf.py`가 있고, 비밀번호 없는 `sudo`(`sudo -n true`)가 되어야 한다. `iw`가 없으면 '와이파이 검색'이, 위 셋 중 하나라도 없으면 '연결' · AP 칸이 꺼지고 화면이 이유를 보여 준다 (`/api/info`의 `network_features`). 옛 netplan 세대 로봇은 `robot_net/provision_ap_mode.sh`로 한 번 옮긴다 (랜선으로, 백업과 3분 되돌림 타이머가 붙는다).
+로봇에 필요한 것: NetworkManager가 켜져 있고, `~/lekiwi_net/`에 `run_ap.sh` · `run_wifi.sh` · `set_ap.sh` · `nm_kf.py`가 있고, 비밀번호 없는 `sudo`(`sudo -n true`)가 되어야 한다. `iw`가 없으면 '와이파이 검색'이, 위 셋 중 하나라도 없으면 '연결' · AP 칸이 꺼지고 화면이 이유를 보여 준다 (`/api/info`의 `network_features`). 옛 netplan 세대 로봇은 `lekiwi_net` 저장소의 `provision_ap_mode.sh`로 한 번 옮긴다 (랜선으로, 백업과 3분 되돌림 타이머가 붙는다).
 
 ### 6-1 AP 모드 켜기 · 끄기
 
@@ -572,7 +572,7 @@ rclpy는 메시지마다 CPU를 쓴다. 그래서 게이트웨이는 빈도가 �
 | 센서 '측정 중' | 구독을 막 시작해 빈도를 2초 동안 재는 중이다. 곧 '정상' (2초 뒤에도 느리면 '늦음') |
 | '외부 실행 · 터미널에서 켠 launch 가 남아 있지만 노드가 보이지 않습니다 …' | 터미널에서 `Ctrl+Z`로 멈췄거나 노드가 죽고 `ros2 launch`만 남았다 (2026-10-19 lekiwi01에서 실제로 있었다: bringup 둘 · Nav2 하나). 대시보드에서 끈 뒤 다시 켠다. 멈춘 launch는 SIGINT를 못 받아 SIGKILL까지 약 20초 걸린다. 게이트웨이를 켠 뒤 10초 안에 보인다 |
 | '외부 실행 · 다른 컴퓨터에서 실행 중이라 끌 수 없습니다' | 다른 컴퓨터에서 켰거나, 강제로 끈 launch의 노드가 10~20초 남아 있다. 기다리거나 켠 곳에서 끈다 |
-| 와이파이 · AP 칸 `… ~/lekiwi_net 스크립트 · NetworkManager · sudo …를 쓸 수 없습니다` 또는 `먼저 로봇을 NetworkManager 세대로 옮기세요` | 로봇이 아직 옛 netplan 세대이거나(`robot_net/provision_ap_mode.sh`로 옮긴다), `~/lekiwi_net`의 스크립트가 없거나, NetworkManager가 꺼져 있거나, 비밀번호 없는 sudo가 안 된다 |
+| 와이파이 · AP 칸 `… ~/lekiwi_net 스크립트 · NetworkManager · sudo …를 쓸 수 없습니다` 또는 `먼저 로봇을 NetworkManager 세대로 옮기세요` | 로봇이 아직 옛 netplan 세대이거나(`lekiwi_net` 저장소의 `provision_ap_mode.sh`로 옮긴다), `~/lekiwi_net`의 스크립트가 없거나, NetworkManager가 꺼져 있거나, 비밀번호 없는 sudo가 안 된다 |
 | AP 모드를 눌렀더니 `… 바꿀 수 없습니다. 먼저 …` | 로봇이 움직일 수 있다 (바퀴 토크 · 지도 작성 · 자율 주행 · 자동 맵 생성 · 팔 세션 · 팔 토크). 이유 글대로 먼저 끈다 |
 | AP에 붙었는데 화면이 안 열린다 | 폰이 "인터넷 없음"이라며 와이파이를 버렸다 (Android는 "연결 유지", iOS는 "인터넷 없이 사용"을 고르고 모바일 데이터를 끈다). 주소는 `http://192.168.4.1:8080`. 이름 주소(`.local`)는 Android에서 안 될 수 있다 |
 | 저널의 `Request timed out` | 30초 놀던 연결을 닫은 것. 괜찮다 |
@@ -585,7 +585,7 @@ rclpy는 메시지마다 CPU를 쓴다. 그래서 게이트웨이는 빈도가 �
 브라우저 (노트북 · 태블릿 · 휴대폰)
   │  HTTP    : 화면 파일 · REST /api/...
   │  WS /ws  : status 4 Hz · event · scan · map · plan · log · 카메라 JPEG
-  │  WS /agent : PC 에이전트 (리더암) 하나 (docs/agent_protocol.md)
+  │  WS /agent : PC 에이전트 (리더암) 하나 (lekiwi_pc_agent 의 docs/agent_protocol.md)
   ▼
 게이트웨이  python3 -m lekiwi_web_operator   (로봇 Pi, 프로세스 하나, 포트 8080)
   ├─ HTTP 스레드 (연결마다)      Host · Origin · client id 검사 → 로봇 명령
@@ -607,7 +607,7 @@ ros2 launch: bringup · Cartographer · Nav2 (+ lekiwi_nav2_motor_guard)
 | `lekiwi-web-operator.service` | systemd 유닛 |
 | `lekiwi_web_operator/__main__.py` | 조립 · 신호 처리 · 접속 주소 출력 |
 | `http_server.py` · `websocket.py` · `hub.py` | HTTP · REST · WebSocket, 화면 세션 · 채널 |
-| `agent.py` | PC 에이전트 `/agent`: 하나만 · 허락 · 리더 값 검사와 중계 (docs/agent_protocol.md) |
+| `agent.py` | PC 에이전트 `/agent`: 하나만 · 허락 · 리더 값 검사와 중계 (lekiwi_pc_agent 의 docs/agent_protocol.md) |
 | `robot.py` · `teleop.py` | 안전 규칙 (조작 권한 · 생존 신호 · 비상 정지 · 자율 주행 시작 순서) |
 | `ros_node.py` | rclpy 노드 (구독 · 라이다 TF · 서비스 · 자율 주행 목표 · 그래프 감시) |
 | `explore.py` | 자동 주행 맵 생성 (ROS 없는 순수 로직): 계획 격자 · 프런티어 · 경로 · 따라가기 · 충돌 예측 |

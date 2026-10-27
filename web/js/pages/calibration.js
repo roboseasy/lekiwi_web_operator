@@ -2,7 +2,7 @@
 // (docs/calibration_plan.md). 상태는 status.calibration (follower · leader), 리더는 PC 에이전트를 거친다.
 // 새로 보정은 lerobot 순서 그대로: 준비 → 제로-포지션 위치 시키기 → 범위 재기 → 끝내기. 어느 단계든 취소하면 쓰지 않는다.
 
-import { agentCommand, copyText, getLeaderCalibration, setLeaderCalibration } from '../arm_teleop.js';
+import { agentRunBoxHtml, bindAgentRunBox, getLeaderCalibration, setLeaderCalibration } from '../arm_teleop.js';
 import { DASH, badge, esc, isNum, isOn, put, putHtml, refs } from '../format.js';
 
 export const title = '캘리브레이션';
@@ -87,14 +87,7 @@ function template(side) {
 			<p class="calib-about">${config.about}</p>
 			<dl class="calib-now" data-k="now"></dl>
 			<p class="arm-error" data-k="nowReason"></p>
-			${followerOnly ? '' : `
-			<div class="run-box" data-k="runBox" hidden>
-				<p class="arm-note">PC 에이전트가 연결되지 않았습니다. 노트북 터미널에서 실행하세요 (끌 때 Ctrl+C)</p>
-				<div class="run-cmd">
-					<code class="mono" data-k="command"></code>
-					<button type="button" class="btn btn-small" data-k="copy">복사</button>
-				</div>
-			</div>`}
+			${followerOnly ? '' : agentRunBoxHtml('PC 에이전트가 연결되지 않았습니다. 노트북 터미널에서 실행하세요')}
 			${followerOnly ? `
 			<div class="calib-restore" data-k="restoreBox" role="alert" hidden>
 				<p class="calib-restore-title">지난 새로 보정이 끝나지 않았습니다</p>
@@ -518,14 +511,7 @@ function createSide(root, ctx, side) {
 		return result;
 	}
 
-	if (k.command) {
-		put(k.command, agentCommand());
-		k.copy.addEventListener('click', async () => {
-			const isCopied = await copyText(k.command);
-			ctx.conn.toast(isCopied ? '실행 명령을 복사했습니다' : '복사하지 못했습니다. 골라 둔 명령을 Ctrl+C 로 복사하세요',
-				isCopied ? 'ok' : 'error');
-		});
-	}
+	if (k.command) bindAgentRunBox(k, ctx.conn);
 
 	k.files.addEventListener('click', (event) => {
 		const button = event.target.closest('[data-id]');

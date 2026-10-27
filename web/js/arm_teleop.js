@@ -47,13 +47,48 @@ const NO_AGENT = 'PC 에이전트가 연결되지 않았습니다 (PC에서 실�
 // 캘리브레이션 화면의 리더 '이 보정 쓰기': 이 브라우저의 보정 선택 기본값 (서버에는 없다)
 const LEADER_CALIBRATION_KEY = 'lekiwi-web-operator.leader-calibration';
 
-/** 리더 보정 기본값 (고른 적이 없거나 저장소를 못 쓰면 null). */
+// PC 에이전트 저장소 (공개). 누구의 노트북이든 홈에 받아 쓴다
+const AGENT_REPO = 'https://github.com/roboseasy/lekiwi_pc_agent';
+
 /** PC 에이전트 실행 명령. 에이전트는 제 폴더에서만 돈다 (python -m). --no-capture-output: conda run 이 출력을 붙잡지 않게 */
 export function agentCommand() {
-	return 'cd ~/workspace/lekiwi-repo/lekiwi-gui/web_operator/pc_agent && conda run '
+	return 'cd ~/lekiwi_pc_agent && conda run '
 		+ `--no-capture-output -n lerobot060 python -m lekiwi_pc_agent --robot ${location.hostname}`;
 }
 
+/** PC 에이전트 받기 · 실행 안내 (조작 · 캘리브레이션 화면). 채우기와 복사 단추는 bindAgentRunBox */
+export function agentRunBoxHtml(note) {
+	return `
+		<div class="run-box" data-k="runBox" hidden>
+			<p class="arm-note">${esc(note)} · 저장소
+				<a href="${AGENT_REPO}" target="_blank" rel="noopener">github.com/roboseasy/lekiwi_pc_agent</a></p>
+			<p class="arm-note">처음 한 번: 저장소 받기 (인터넷이 되는 곳에서. 로봇 AP 에 붙어 있으면 안 된다)</p>
+			<div class="run-cmd">
+				<code class="mono" data-k="cloneCommand"></code>
+				<button type="button" class="btn btn-small" data-k="copyClone">복사</button>
+			</div>
+			<p class="arm-note">실행 (conda 환경 lerobot060 · 끌 때 Ctrl+C)</p>
+			<div class="run-cmd">
+				<code class="mono" data-k="command"></code>
+				<button type="button" class="btn btn-small" data-k="copy">복사</button>
+			</div>
+		</div>`;
+}
+
+/** agentRunBoxHtml 의 두 명령을 채우고 복사 단추를 잇는다. k = refs(root) */
+export function bindAgentRunBox(k, conn) {
+	put(k.cloneCommand, `cd ~ && git clone ${AGENT_REPO}.git`);
+	put(k.command, agentCommand());
+	for (const [button, code] of [[k.copyClone, k.cloneCommand], [k.copy, k.command]]) {
+		button.addEventListener('click', async () => {
+			const isCopied = await copyText(code);
+			conn.toast(isCopied ? '명령을 복사했습니다' : '복사하지 못했습니다. 골라 둔 명령을 Ctrl+C 로 복사하세요',
+				isCopied ? 'ok' : 'error');
+		});
+	}
+}
+
+/** 리더 보정 기본값 (고른 적이 없거나 저장소를 못 쓰면 null). */
 export function getLeaderCalibration() {
 	try {
 		return localStorage.getItem(LEADER_CALIBRATION_KEY);
@@ -90,13 +125,7 @@ function template() {
 				<button type="button" class="btn" data-k="approve"></button>
 			</div>
 			<p class="reason" data-k="agentReason"></p>
-			<div class="run-box" data-k="runBox" hidden>
-				<p class="arm-note">노트북에서 실행. 끌 때 Ctrl+C</p>
-				<div class="run-cmd">
-					<code class="mono" data-k="command"></code>
-					<button type="button" class="btn btn-small" data-k="copy">복사</button>
-				</div>
-			</div>
+			${agentRunBoxHtml('노트북 터미널에서 실행합니다')}
 		</div>
 		<div class="arm-part" role="group" aria-labelledby="leader-title">
 			<h3 class="arm-label" id="leader-title">리더암</h3>
@@ -205,7 +234,7 @@ export function createArmTeleop(root, ctx) {
 	let port = null;          // 고른 포트 (사용자가 고르기 전에는 리더 포트 · 첫 포트)
 	let calibration = null;   // 고른 보정 id
 	let isStarting = false;   // 팔 시작 응답(최대 약 10 s)을 기다리는 중
-	put(k.command, agentCommand());
+	bindAgentRunBox(k, ctx.conn);
 
 	const agentOf = () => ctx.status?.agent;
 	const armOf = () => ctx.status?.teleop_arm;
@@ -381,11 +410,6 @@ export function createArmTeleop(root, ctx) {
 	k.start.addEventListener('click', start);
 	k.stop.addEventListener('click', () => ctx.conn.post('/api/arm/stop', {}));
 	k.relax.addEventListener('click', relax);
-	k.copy.addEventListener('click', async () => {
-		const isCopied = await copyText(k.command);
-		ctx.conn.toast(isCopied ? '실행 명령을 복사했습니다' : '복사하지 못했습니다. 골라 둔 명령을 Ctrl+C 로 복사하세요',
-			isCopied ? 'ok' : 'error');
-	});
 	ctx.on('update', render);
 	render();
 
