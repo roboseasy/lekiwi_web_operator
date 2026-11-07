@@ -1,8 +1,8 @@
 // 지도 작성: 시작 · 끄기 · 실시간 지도(지도 + 스캔 + 로봇) · 자동 주행 맵 생성 · 작은 카메라 두 대 ·
-// 조작 패드 축소판 · 지도 저장 (SPEC §11-3, 자동 주행 맵 생성 명세 §4)
+// IMU · odom · 조작 패드 축소판 · 지도 저장 (SPEC §11-3, 자동 주행 맵 생성 명세 §4)
 
 import {
-	DASH, badge, duration, esc, fixed, isExploring, isNum, isOn, processBadge, put, putHtml,
+	DASH, badge, degrees, duration, esc, fixed, isExploring, isNum, isOn, processBadge, put, putHtml,
 	readout, refs,
 } from '../format.js';
 import { createTeleop } from '../teleop.js';
@@ -10,8 +10,10 @@ import { createCameraView } from '../widgets/camera_view.js';
 import { createMapView } from '../widgets/map_view.js';
 
 export const title = '지도 작성';
-// 카메라는 작게 보여도 조작 화면과 같은 프레임을 받는다 (Pi CPU, README 9장)
-export const channels = ['map', 'scan', 'camera/front', 'camera/wrist'];
+// 카메라는 작게 보여도 조작 화면과 같은 프레임을 받는다. IMU (100 Hz) · odom 도 센서 화면과 같은 구독이다
+// (Pi CPU, README 9장)
+export const channels = ['map', 'scan', 'camera/front', 'camera/wrist', 'imu', 'odom'];
+const AXIS_NAMES = ['x', 'y', 'z'];
 
 const EXPLORE_STATES = {   // status.exploration.state
 	idle: ['neutral', '대기'],
@@ -82,14 +84,47 @@ export function mount(el, ctx) {
 		<header class="page-head"><h1>지도 작성</h1><span data-k="badge"></span></header>
 		<div class="split split-mapping">
 			<div class="well map-well" data-k="map"></div>
-			<!-- 지도 옆 칸: 몰면서 전방 · 손목 영상을 같이 본다 -->
-			<section class="panel mapping-cameras" aria-labelledby="mapping-cameras-title">
-				<h2 id="mapping-cameras-title">카메라</h2>
-				<div class="nav-cameras">
-					<div class="well camera-well" data-k="front"></div>
-					<div class="well camera-well" data-k="wrist"></div>
-				</div>
-			</section>
+			<!-- 지도 옆 칸: 몰면서 전방 · 손목 영상과 IMU · odom 을 같이 본다 -->
+			<div class="split-side">
+				<section class="panel mapping-cameras" aria-labelledby="mapping-cameras-title">
+					<h2 id="mapping-cameras-title">카메라</h2>
+					<div class="nav-cameras">
+						<div class="well camera-well" data-k="front"></div>
+						<div class="well camera-well" data-k="wrist"></div>
+					</div>
+				</section>
+				<section class="panel" aria-labelledby="mapping-imu-title">
+					<h2 id="mapping-imu-title">IMU</h2>
+					<dl class="readouts readouts-3">
+						${readout('roll', 'roll', '°')}
+						${readout('pitch', 'pitch', '°')}
+						${readout('yaw', 'yaw', '°')}
+					</dl>
+					<h3 class="sub">자이로 (rad/s)</h3>
+					<dl class="readouts readouts-3 readouts-small">
+						${AXIS_NAMES.map((axis) => readout(`gyro${axis}`, `자이로 ${axis}`)).join('')}
+					</dl>
+					<h3 class="sub">가속도 (m/s²)</h3>
+					<dl class="readouts readouts-3 readouts-small">
+						${AXIS_NAMES.map((axis) => readout(`accel${axis}`, `가속도 ${axis}`)).join('')}
+					</dl>
+				</section>
+				<!-- 'odom 원점으로' 는 넣지 않는다: 지도 작성 중에는 서버가 거절한다 (위치가 튀어 지도가 깨진다) -->
+				<section class="panel" aria-labelledby="mapping-odom-title">
+					<h2 id="mapping-odom-title">odom</h2>
+					<dl class="readouts readouts-3">
+						${readout('odomX', '위치 x', 'm')}
+						${readout('odomY', '위치 y', 'm')}
+						${readout('odomYaw', '방향 yaw', '°')}
+					</dl>
+					<h3 class="sub">속도</h3>
+					<dl class="readouts readouts-3 readouts-small">
+						${readout('odomVx', 'vx', 'm/s')}
+						${readout('odomVy', 'vy', 'm/s')}
+						${readout('odomWz', 'wz', 'rad/s')}
+					</dl>
+				</section>
+			</div>
 			<div class="split-side">
 				<section class="panel" aria-labelledby="mapping-title">
 					<h2 id="mapping-title">지도 작성</h2>
@@ -197,6 +232,23 @@ export function mount(el, ctx) {
 		put(k.exploreArea, fixed(run?.explored_area, 1));
 		put(k.exploreFrontiers, isNum(run?.frontiers) ? String(run.frontiers) : DASH);
 		putHtml(k.exploreResult, exploreResult(run));
+
+		// IMU · odom: 센서 화면과 같은 값 · 자릿수
+		const imu = ctx.status?.imu;
+		put(k.roll, fixed(imu?.roll, 1));
+		put(k.pitch, fixed(imu?.pitch, 1));
+		put(k.yaw, fixed(imu?.yaw, 1));
+		AXIS_NAMES.forEach((axis, index) => {
+			put(k[`gyro${axis}`], fixed(imu?.gyro?.[index], 3));
+			put(k[`accel${axis}`], fixed(imu?.accel?.[index], 2));
+		});
+		const odom = ctx.status?.odom;
+		put(k.odomX, fixed(odom?.x, 3));
+		put(k.odomY, fixed(odom?.y, 3));
+		put(k.odomYaw, degrees(odom?.yaw, 1));
+		put(k.odomVx, fixed(odom?.vx, 3));
+		put(k.odomVy, fixed(odom?.vy, 3));
+		put(k.odomWz, fixed(odom?.wz, 3));
 
 		// 지도 작성이 꺼지면 그 지도는 사라진다: 서버에 남은 마지막 지도 · 자세를 살아 있는 것처럼 보이지 않는다
 		map.setMap(isActive ? ctx.map : null);
