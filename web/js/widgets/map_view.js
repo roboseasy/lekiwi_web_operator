@@ -7,10 +7,8 @@ import { drawRobot, observeCanvas, themeColors } from './canvas.js';
 
 const MIN_SCALE = 2;          // [px/m]
 const MAX_SCALE = 400;        // [px/m]
-const ROBOT_RADIUS = 0.19;    // [m] 몸체 · 바퀴 원 (config.EXPLORE_BODY_RADIUS)
-// 접은 팔: 중심 → 팔 끝 0.22 m, 좌우 반폭 0.10 m (config.EXPLORE_ARM_REACH · EXPLORE_ARM_HALF_WIDTH).
-// 자동 주행이 충돌을 판단하는 모양을 그대로 보인다 (몸체 반지름에 대한 비)
-const ARM = { reach: 0.22 / ROBOT_RADIUS, halfWidth: 0.10 / ROBOT_RADIUS };
+// [m] 몸체와 접은 팔을 다 덮는 원 (config.EXPLORE_BODY_RADIUS). 자동 주행이 충돌을 판단하는 모양을 그대로 보인다
+const ROBOT_RADIUS = 0.22;
 const ROBOT_VIEW = 5;         // [m] '로봇에 맞춤' 때 화면 짧은 변에 담는 거리
 const GRID_MIN_SCALE = 8;     // [px/m] 이보다 작게 보면 격자가 너무 촘촘해 생략
 const DRAG_MIN_PX = 8;        // 이보다 짧게 끌면 방향 0 (RViz 와 같다)
@@ -255,7 +253,7 @@ export function createMapView(root, onPose = null) {
 		if (robot) {
 			const [sx, sy] = toScreen(robot.x, robot.y);
 			const radius = Math.max(ROBOT_RADIUS * view.scale, 7);
-			drawRobot(g, sx, sy, radius, -robot.yaw, color('--accent'), ARM);
+			drawRobot(g, sx, sy, radius, -robot.yaw, color('--accent'));
 		}
 		if (drag) drawPose(drag, color(tool === 'goal' ? '--ok' : '--warn'));
 	}

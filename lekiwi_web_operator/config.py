@@ -197,15 +197,16 @@ SAVE_MAP_TIMEOUT: Final[float] = 120.0       # [s] save_map.sh 전체 제한
 # elbow +105.7 · wrist_flex +49.2 · roll +104.4°; URDF 의 shoulder_lift 부호를 LeRobot 과 반대로 본
 # 경우만 눈으로 본 '약 10 cm' 와 맞았다): 몸체 정면 x 0.109 m, 앞바퀴 0.126 m, 몸체 반지름 0.180 m.
 # 접은 팔 끝 x 0.212 m (몸체 정면에서 10.3 cm), 팔이 나온 부분 y −0.003..+0.093 m · 높이 z 0.156..0.301 m,
-# 중심에서 가장 먼 점 0.217 m. 라이다 스캔 면은 z 0.025 m 라 팔 높이의 물체는 보지 못한다
-EXPLORE_BODY_RADIUS: Final[float] = 0.19       # [m] 몸체 · 바퀴 원 (0.180 + 1 cm)
-EXPLORE_ARM_REACH: Final[float] = 0.22         # [m] 중심 → 접은 팔 끝 (x, 0.212 + 8 mm)
-EXPLORE_ARM_HALF_WIDTH: Final[float] = 0.10    # [m] 접은 팔 좌우 반폭 (y −0.003..+0.093 을 대칭으로 덮는다)
-EXPLORE_MARGIN: Final[float] = 0.08            # [m] 충돌 예측 여유
-# [m] 제자리 회전 때 팔 상자 모서리가 쓸고 지나가는 반지름 + 여유 (약 0.322)
-EXPLORE_ROTATION_RADIUS: Final[float] = (
-	math.hypot(EXPLORE_ARM_REACH, EXPLORE_ARM_HALF_WIDTH) + EXPLORE_MARGIN
-)
+# 중심에서 가장 먼 점 0.217 m. 라이다 스캔 면은 z 0.025 m 라 팔 높이의 물체는 보지 못한다.
+# 자동 주행은 팔을 접은 자세로만 한다 (확인 창). 그래서 몸 모양은 몸체와 접은 팔을 다 덮는 원 하나다:
+# 원은 돌아도 같은 자리라 제자리 회전에 자리가 더 들지 않는다 (Nav2 robot_radius 0.22 와 같다).
+# 2026-11-07 까지는 원 0.19 ∪ 팔 상자 (앞 0.22 · 좌우 0.10) 에 여유 0.08 이라 회전 반지름이 0.322 였다
+# (안쪽 0.7 m 우리에서 시작하지 못했다)
+EXPLORE_BODY_RADIUS: Final[float] = 0.22       # [m] 접은 팔의 가장 먼 점 0.217 + 3 mm
+EXPLORE_MARGIN: Final[float] = 0.08            # [m] 충돌 예측 여유 (전진 · 호)
+# [m] 제자리 회전 때 비워 둘 반지름 (0.27). 원은 돌아도 어느 점에도 다가가지 않아 여유는 자세 · 모양 오차
+# 몫만 둔다 (EXPLORE_MARGIN 보다 작다. 실측 우리에서 가장 가까운 벽이 0.29 m 였다)
+EXPLORE_ROTATION_RADIUS: Final[float] = EXPLORE_BODY_RADIUS + 0.05
 # 정면으로만 간다 (옆 · 뒤는 라이다가 못 보는 바퀴 쪽). 방향이 35° 넘게 틀어지면 제자리에서 돈다.
 # 베이스 상한 (0.11 m/s · 0.75 rad/s) 안, Cartographer 가 따라오게 지도 작성 권장 단계보다 조금 느리게
 EXPLORE_SPEED: Final[float] = 0.05             # [m/s]

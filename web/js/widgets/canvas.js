@@ -37,25 +37,13 @@ export function themeColors(el) {
  * @param {number} radius 화면 반지름.
  * @param {number} angle 앞 방향 화면 각도 (0 = 오른쪽, 시계 방향 +).
  * @param {string} color 색.
- * @param {{reach: number, halfWidth: number} | null} arm 팔 상자: 중심 → 팔 끝, 좌우 반폭
- *     (몸체 반지름에 대한 비, halfWidth < 1 < reach). null 이면 원만.
  */
-export function drawRobot(g, x, y, radius, angle, color, arm = null) {
+export function drawRobot(g, x, y, radius, angle, color) {
 	g.save();
 	g.translate(x, y);
 	g.rotate(angle);
 	g.beginPath();
-	if (arm) {
-		// 바깥 선 하나: 팔 상자 옆변이 원과 만나는 곳에서 원을 뒤로 돌아 팔 끝으로
-		const half = arm.halfWidth * radius;
-		const start = Math.asin(arm.halfWidth);
-		g.arc(0, 0, radius, start, Math.PI * 2 - start);
-		g.lineTo(arm.reach * radius, -half);
-		g.lineTo(arm.reach * radius, half);
-		g.closePath();
-	} else {
-		g.arc(0, 0, radius, 0, Math.PI * 2);
-	}
+	g.arc(0, 0, radius, 0, Math.PI * 2);
 	g.fillStyle = color;
 	g.globalAlpha = 0.22;
 	g.fill();
@@ -63,7 +51,7 @@ export function drawRobot(g, x, y, radius, angle, color, arm = null) {
 	g.lineWidth = 2;
 	g.strokeStyle = color;
 	g.stroke();
-	const tip = radius * (arm?.reach ?? 1) + 10;
+	const tip = radius + 10;
 	g.beginPath();
 	g.moveTo(0, 0);
 	g.lineTo(tip - 6, 0);
