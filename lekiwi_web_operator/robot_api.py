@@ -219,6 +219,11 @@ class RobotApi(Protocol):
 	def stop_exploration(self, client_id: str) -> CommandResult:
 		"""자동 주행 멈춤 (조작 권한 필요). 토크는 켜 둔다. 자동 주행 중이 아니어도 ok."""
 
+	def localize(self, client_id: str) -> CommandResult:
+		"""자동 위치 찾기 (holder, 자율 주행 실행 중): AMCL 전역 초기화 → Nav2 Spin 제자리 회전 → amcl_pose 가
+		모이면 멈춘다. 진행 · 결과는 status.navigation.localization ({'state', 'message', 'xy_std', 'yaw_std'})
+		과 이벤트."""
+
 	def set_initial_pose(self, client_id: str, x: float, y: float, yaw: float) -> CommandResult:
 		"""자율 주행의 초기 위치 (map 프레임)."""
 

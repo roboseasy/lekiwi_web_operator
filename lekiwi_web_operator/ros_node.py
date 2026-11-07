@@ -34,6 +34,7 @@ import numpy as np
 import tf2_ros
 from action_msgs.msg import GoalStatus, GoalStatusArray
 from action_msgs.srv import CancelGoal
+from builtin_interfaces.msg import Duration
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Quaternion, Twist
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from rcl_interfaces.srv import GetParameters
@@ -53,7 +54,7 @@ from rclpy.task import Future as RosFuture
 from rclpy.time import Time
 from sensor_msgs.msg import CompressedImage, Imu, JointState, LaserScan
 from std_msgs.msg import Bool, String
-from std_srvs.srv import SetBool, Trigger
+from std_srvs.srv import Empty, SetBool, Trigger
 from tf2_msgs.msg import TFMessage
 
 from lekiwi_web_operator import config, explore, map_codec, tf_echo
@@ -68,10 +69,10 @@ try:
 except ImportError:  # 옛 lekiwi_msgs: 보정 탭의 모터 값만 없다
 	ArmRegisters = None
 try:
-	from nav2_msgs.action import NavigateToPose
+	from nav2_msgs.action import NavigateToPose, Spin
 	from nav2_msgs.msg import SpeedLimit
 except ImportError:  # Nav2 가 없다: 자율 주행만 끈다
-	NavigateToPose = SpeedLimit = None
+	NavigateToPose = SpeedLimit = Spin = None
 
 HAS_MOTOR_MSGS: Final[bool] = MotorStateArray is not None
 HAS_NAVIGATION: Final[bool] = NavigateToPose is not None
@@ -218,6 +219,21 @@ def path_remaining(points: list[float], x: float, y: float) -> float | None:
 	nearest = min(range(len(path)), key=lambda index: math.dist(path[index], (x, y)))
 	rest = path[nearest:]
 	return math.dist((x, y), rest[0]) + sum(map(math.dist, rest, rest[1:]))
+
+
+def localization_spread(covariance: Any) -> tuple[float, float]:
+	"""amcl_pose 공분산 (6 × 6 행 우선) → (위치 표준 편차 [m] (x · y 중 큰 쪽), 방향 표준 편차 [rad])."""
+	return math.sqrt(max(covariance[0], covariance[7], 0.0)), math.sqrt(max(covariance[35], 0.0))
+
+
+def is_localization_settled(updates: int, stable: int) -> bool:
+	"""Spin 시작 뒤 amcl_pose 수 · 기준 안이 연달아 온 수로 '찾았다' 를 정한다."""
+	return updates >= config.LOCALIZE_MIN_UPDATES and stable >= config.LOCALIZE_STABLE_UPDATES
+
+
+def _idle_localization() -> dict:
+	"""status.navigation.localization: state 'idle' | 'running' | 'succeeded' | 'failed'."""
+	return {'state': 'idle', 'message': None, 'xy_std': None, 'yaw_std': None}
 
 
 def _idle_navigation() -> dict:
@@ -423,6 +439,14 @@ class OperatorNode(QuietNode):
 		self._goal_id: Any = None   # 우리가 보낸 마지막 목표의 UUID (종료 때는 이것만 취소한다)
 		self._is_goal_accepted = False
 		self._is_cancel_pending = False
+		# 자동 위치 찾기: AMCL 전역 초기화 서비스 · Spin 액션 서비스 3개 (목표 클라이언트와 함께 산다)
+		self._localize_clients: tuple[Client, Client, Client, Client] | None = None
+		self._amcl_pose_subscription: Any = None
+		self._localization = _idle_localization()   # 바꾸기는 ROS 스레드에서만 (잠금 안)
+		self._localize_seq = 0      # 늦게 온 서비스 · 액션 응답을 버린다
+		self._spin_goal_id: Any = None
+		self._localize_updates = 0  # Spin 이 시작한 뒤 받은 amcl_pose 수
+		self._localize_stable = 0   # 기준 안의 amcl_pose 가 연달아 온 수
 
 		self._command_guard = self.create_guard_condition(self.command_callback)
 		self._tf_buffer = tf2_ros.Buffer()
@@ -794,15 +818,16 @@ class OperatorNode(QuietNode):
 		Returns:
 			취소할 목표가 있었으면 True (우리 것이 진행 중이거나 서버 status 에 진행 중인 것).
 		"""
+		is_localizing = self.cancel_localization('위치 찾기를 멈췄습니다')
 		if self._goal_clients is None:
-			return False
+			return is_localizing
 		self._call(self._goal_clients[2], CancelGoal.Request())
 		with self._lock:
 			is_ours = self._navigation['state'] == 'active'
 			has_others = self._active_goals > 0
 		if is_ours and not self._is_goal_accepted:   # 수락 응답 전: 받는 즉시 다시 취소한다
 			self._is_cancel_pending = True
-		return is_ours or has_others
+		return is_ours or has_others or is_localizing
 
 	def cancel_own_goal(self) -> None:
 		"""(게이트웨이 종료) 우리가 보낸 목표가 진행 중일 때 그것만 취소한다.
@@ -810,6 +835,7 @@ class OperatorNode(QuietNode):
 		RViz · 터미널에서 보낸 목표는 그대로 둔다: 서비스를 다시 켜거나 SSH 가 끊겨도
 		다른 사람의 주행을 멈추지 않게. (goal_id 만 주고 stamp 0 = 그 목표만 취소)
 		"""
+		self._cancel_spin()   # 우리가 시작한 위치 찾기 회전도 (종료 뒤 혼자 돌지 않게)
 		with self._lock:
 			is_ours = self._navigation['state'] == 'active'
 		if self._goal_clients is None or not is_ours or self._goal_id is None:
@@ -871,6 +897,121 @@ class OperatorNode(QuietNode):
 		with self._lock:
 			self._active_goals = count
 
+	# ── 자동 위치 찾기 (ROS 스레드) ────────────────────────
+	def navigation_states(self) -> tuple[str, str]:
+		"""(목표 상태, 위치 찾기 상태) — 다른 스레드에서 읽는다."""
+		with self._lock:
+			return self._navigation['state'], self._localization['state']
+
+	def start_localization(self) -> bool:
+		"""AMCL 전역 초기화 → Spin (응답마다 다음 단계). 서버가 준비되지 않았으면 False."""
+		clients = self._localize_clients
+		if clients is None or not all(client.service_is_ready() for client in clients):
+			return False
+		self._localize_seq += 1
+		seq = self._localize_seq
+		self._spin_goal_id = None
+		self._localize_updates = self._localize_stable = 0
+		self._set_localization(
+			state='running', message='위치 후보를 지도 전체에 뿌리는 중입니다', xy_std=None, yaw_std=None,
+		)
+		clients[0].call_async(Empty.Request()).add_done_callback(
+			lambda done: self.global_localization_callback(seq, done),
+		)
+		return True
+
+	def cancel_localization(self, message: str) -> bool:
+		"""돌고 있는 위치 찾기를 멈춘다 (Spin 취소). 돌고 있었으면 True."""
+		if self._localization['state'] != 'running':
+			return False
+		self._cancel_spin()
+		self._end_localization('failed', message)
+		return True
+
+	def global_localization_callback(self, seq: int, future: RosFuture) -> None:
+		"""(ROS 스레드) 전역 초기화가 끝났다: 제자리 회전 (Spin) 을 보낸다."""
+		if seq != self._localize_seq:
+			return
+		clients = self._localize_clients
+		if future.exception() is not None or future.result() is None or clients is None:
+			self._end_localization('failed', 'AMCL 전역 위치 찾기를 부르지 못했습니다')
+			return
+		request = Spin.Impl.SendGoalService.Request()
+		request.goal_id.uuid = list(uuid.uuid4().bytes)
+		request.goal.target_yaw = float(config.LOCALIZE_SPIN_YAW)
+		request.goal.time_allowance = Duration(sec=config.LOCALIZE_TIME_ALLOWANCE)
+		self._spin_goal_id = request.goal_id
+		self._set_localization(message='제자리에서 돌며 라이다를 지도와 맞추는 중입니다')
+		clients[1].call_async(request).add_done_callback(
+			lambda done: self.spin_response_callback(seq, request.goal_id, done),
+		)
+
+	def spin_response_callback(self, seq: int, goal_id: Any, future: RosFuture) -> None:
+		"""(ROS 스레드) Spin 수락 · 거부. 수락되면 결과를 묻는다."""
+		if seq != self._localize_seq:
+			return
+		response = future.result() if future.exception() is None else None
+		clients = self._localize_clients
+		if response is None or not response.accepted or clients is None:
+			self._spin_goal_id = None
+			self._end_localization('failed', '제자리 회전 (Nav2 Spin) 이 거부되었습니다')
+			return
+		request = Spin.Impl.GetResultService.Request(goal_id=goal_id)
+		clients[2].call_async(request).add_done_callback(
+			lambda done: self.spin_result_callback(seq, done),
+		)
+
+	def spin_result_callback(self, seq: int, future: RosFuture) -> None:
+		"""(ROS 스레드) Spin 이 끝났는데 아직 못 찾았다 (찾아서 멈춘 것 · 취소는 seq 가 바뀌어 여기 오지 않는다)."""
+		if seq != self._localize_seq:
+			return
+		self._spin_goal_id = None
+		response = future.result() if future.exception() is None else None
+		status = GoalStatus.STATUS_ABORTED if response is None else response.status
+		if status == GoalStatus.STATUS_SUCCEEDED:
+			message = '두 바퀴 돌아도 위치가 한 곳으로 모이지 않았습니다. ‘초기 위치’로 직접 정하세요'
+		else:
+			detail = '' if response is None else getattr(response.result, 'error_msg', '')
+			message = '제자리 회전이 멈췄습니다' + (f' ({detail})' if detail else '') + '. ‘초기 위치’로 직접 정하세요'
+		self._end_localization('failed', message)
+
+	def amcl_pose_callback(self, msg: PoseWithCovarianceStamped) -> None:
+		"""(ROS 스레드) 도는 동안 AMCL 자세의 퍼짐을 보고, 충분히 모이면 Spin 을 멈춘다."""
+		if self._localization['state'] != 'running' or self._spin_goal_id is None:
+			return   # 전역 초기화 직후 (아직 돌기 전) 의 자세는 보지 않는다
+		xy_std, yaw_std = localization_spread(msg.pose.covariance)
+		self._localize_updates += 1
+		is_tight = xy_std < config.LOCALIZE_XY_STD and yaw_std < config.LOCALIZE_YAW_STD
+		self._localize_stable = self._localize_stable + 1 if is_tight else 0
+		self._set_localization(xy_std=round(xy_std, 3), yaw_std=round(yaw_std, 3))
+		if not is_localization_settled(self._localize_updates, self._localize_stable):
+			return
+		self._cancel_spin()
+		pose = msg.pose.pose
+		yaw = math.degrees(yaw_from_quaternion(pose.orientation))
+		self._end_localization('succeeded', (
+			f'위치를 찾았습니다: x {pose.position.x:.2f} · y {pose.position.y:.2f} m, 방향 {yaw:.0f}° '
+			f'(오차 약 ±{xy_std:.2f} m · ±{math.degrees(yaw_std):.0f}°)'
+		))
+
+	def _cancel_spin(self) -> None:
+		"""우리가 보낸 Spin 만 취소한다 (goal_id)."""
+		if self._localize_clients is None or self._spin_goal_id is None:
+			return
+		request = CancelGoal.Request()
+		request.goal_info.goal_id = self._spin_goal_id
+		self._spin_goal_id = None
+		self._localize_clients[3].call_async(request)
+
+	def _end_localization(self, state: str, message: str) -> None:
+		self._localize_seq += 1   # 늦게 오는 Spin 결과 · 응답은 버린다
+		self._set_localization(state=state, message=message)
+		self._on_event('info' if state == 'succeeded' else 'warn', f'자동 위치 찾기: {message}')
+
+	def _set_localization(self, **fields: Any) -> None:
+		with self._lock:
+			self._localization = {**self._localization, **fields}
+
 	def _set_goal_clients(self, is_wanted: bool) -> None:
 		"""navigate_to_pose 액션의 서비스 클라이언트 3개 · status 구독 · 속도 제한 퍼블리셔를
 		만들거나 지운다."""
@@ -888,11 +1029,27 @@ class OperatorNode(QuietNode):
 			self._speed_limit_publisher = self.create_publisher(
 				SpeedLimit, config.SPEED_LIMIT_TOPIC, 1,
 			)
+			spin = f'{config.SPIN_ACTION}/_action'
+			self._localize_clients = (
+				self.create_client(Empty, config.GLOBAL_LOCALIZATION_SERVICE),
+				self.create_client(Spin.Impl.SendGoalService, f'{spin}/send_goal'),
+				self.create_client(Spin.Impl.GetResultService, f'{spin}/get_result'),
+				self.create_client(CancelGoal, f'{spin}/cancel_goal'),
+			)
+			# AMCL 은 transient_local 로 낸다: volatile 구독은 어느 쪽과도 맞는다
+			self._amcl_pose_subscription = self.create_subscription(
+				PoseWithCovarianceStamped, config.AMCL_POSE_TOPIC, self.amcl_pose_callback, VOLATILE_QOS,
+			)
 		elif not is_wanted and self._goal_clients is not None:
 			for client in self._goal_clients:
 				self.destroy_client(client)
 			self.destroy_subscription(self._goal_status_subscription)
 			self.destroy_publisher(self._speed_limit_publisher)
+			self.cancel_localization('자율 주행이 꺼져 위치 찾기를 멈췄습니다')
+			for client in self._localize_clients:
+				self.destroy_client(client)
+			self.destroy_subscription(self._amcl_pose_subscription)
+			self._localize_clients = self._amcl_pose_subscription = None
 			self._goal_clients = self._goal_status_subscription = None
 			self._speed_limit_publisher = None
 			with self._lock:
@@ -1209,6 +1366,7 @@ class OperatorNode(QuietNode):
 			}
 			ready = self._motor_ready
 			navigation = dict(self._navigation)
+			localization = dict(self._localization)
 			plan, goal_plan_seq = self._plan, self._goal_plan_seq
 			scan = self._latest['scan']
 		motors, power = self._converted('motor_states', states, _motor_status) or ([], None)
@@ -1228,7 +1386,7 @@ class OperatorNode(QuietNode):
 			'pose': {'map': map_pose, 'odom': _pose_dict(odom_dict)},
 			'imu': self._converted('imu', imu, _imu_dict),
 			'motor_ready': ready,
-			'navigation': {**navigation, 'is_localized': map_pose is not None},
+			'navigation': {**navigation, 'is_localized': map_pose is not None, 'localization': localization},
 			'is_scan_tf_missing': scan is not None and scan[1][1] is None,
 			'arm': {
 				**arm, 'status': self._converted('arm_status', arm_status, _arm_status_dict),

@@ -68,6 +68,20 @@ MAP_TOPIC: Final[str] = 'map'
 PLAN_TOPIC: Final[str] = 'plan'
 INITIAL_POSE_TOPIC: Final[str] = 'initialpose'
 NAVIGATE_ACTION: Final[str] = 'navigate_to_pose'
+# 자동 위치 찾기: AMCL 전역 초기화 (위치 후보를 지도 전체에) → Nav2 Spin 으로 제자리 회전 → amcl_pose 의
+# 공분산이 모이면 Spin 을 멈춘다. Spin 은 behavior_server 가 cmd_vel_nav 로 내보내 (컨트롤러와 같은 길:
+# 속도 완화 · 충돌 감시) 감독 도구의 cmd_vel 발행자 규칙이 그대로다. 지역 비용 지도로 충돌을 본다
+GLOBAL_LOCALIZATION_SERVICE: Final[str] = 'reinitialize_global_localization'   # AMCL, std_srvs/Empty
+AMCL_POSE_TOPIC: Final[str] = 'amcl_pose'
+SPIN_ACTION: Final[str] = 'spin'
+LOCALIZE_SPIN_YAW: Final[float] = 4 * math.pi     # [rad] 두 바퀴
+LOCALIZE_TIME_ALLOWANCE: Final[int] = 120         # [s] Spin 제한 (behavior_server 0.25 rad/s 로 두 바퀴 약 50 s)
+LOCALIZE_XY_STD: Final[float] = 0.2               # [m] amcl_pose 위치 표준 편차 (x · y 중 큰 쪽) 가 이보다 작고
+LOCALIZE_YAW_STD: Final[float] = 0.3              # [rad] 방향 표준 편차 (약 17°) 가 이보다 작은 갱신이
+LOCALIZE_STABLE_UPDATES: Final[int] = 3           # 연달아 이만큼 오면 찾았다
+# Spin 시작 뒤 amcl_pose 가 이만큼 오기 전에는 찾았다고 하지 않는다 (AMCL 은 0.15 rad 마다 갱신: 약 100°).
+# 몇 군데 본 것만으로 엉뚱한 곳에 모인 후보를 믿지 않게
+LOCALIZE_MIN_UPDATES: Final[int] = 12
 # Nav2 controller_server 의 speed_limit_topic 기본값 (구독 QoS(10): reliable · volatile)
 SPEED_LIMIT_TOPIC: Final[str] = 'speed_limit'
 

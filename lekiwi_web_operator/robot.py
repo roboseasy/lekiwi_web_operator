@@ -95,6 +95,7 @@ READ_ONLY_MESSAGE: Final[str] = '보기 전용 모드라 할 수 없습니다'
 NOT_OPERATOR_MESSAGE: Final[str] = '조작 권한이 필요합니다. 먼저 조작 권한을 받으세요'
 LEASE_LOST_MESSAGE: Final[str] = '조작 화면 신호가 끊겨 로봇을 멈췄습니다'
 NO_NAVIGATION_MESSAGE: Final[str] = 'nav2_msgs 가 없어 자율 주행을 쓸 수 없습니다'
+LOCALIZING_MESSAGE: Final[str] = '자동으로 위치를 찾는 중입니다. 끝나거나 ‘목표 취소’로 멈춘 뒤 하세요'
 ESTOP_HOLDOFF_MESSAGE: Final[str] = '비상 정지 직후입니다. 잠시 뒤 다시 누르세요'
 ESTOPPED_MESSAGE: Final[str] = '그사이 비상 정지가 눌렸습니다'
 POWER_OFF_UNREACHABLE_MESSAGE: Final[str] = (
@@ -977,8 +978,28 @@ class RobotService:
 		denied = self._check_navigation_command(client_id, (x, y, yaw))
 		if denied is not None:
 			return denied
-		self._run_in_ros(self._require_node().publish_initial_pose, float(x), float(y), float(yaw))
+		node = self._require_node()
+		self._run_in_ros(node.cancel_localization, '초기 위치를 직접 정해 위치 찾기를 멈췄습니다')
+		self._run_in_ros(node.publish_initial_pose, float(x), float(y), float(yaw))
 		return ok_result('초기 위치를 보냈습니다')
+
+	def localize(self, client_id: str) -> CommandResult:
+		"""자동 위치 찾기 (holder): AMCL 전역 초기화 → Nav2 Spin 으로 제자리 회전 (최대 두 바퀴) → amcl_pose 가
+		모이면 멈춘다. 진행 · 결과는 status.navigation.localization 과 이벤트. 목표로 가는 중에는 거절한다."""
+		denied = self._check_navigation_command(client_id, ())
+		if denied is not None:
+			return denied
+		if not self._features['has_navigation']:
+			return error_result('unavailable', NO_NAVIGATION_MESSAGE)
+		node = self._require_node()
+		goal_state, localization_state = node.navigation_states()
+		if goal_state == 'active':
+			return error_result('conflict', '목표로 가는 중에는 위치를 찾을 수 없습니다. 목표를 취소한 뒤 하세요')
+		if localization_state == 'running':
+			return error_result('conflict', LOCALIZING_MESSAGE)
+		if not self._run_in_ros(node.start_localization):
+			return error_result('unavailable', 'AMCL · Nav2 Spin 서버가 아직 준비되지 않았습니다')
+		return ok_result('자동 위치 찾기를 시작했습니다 (제자리에서 최대 두 바퀴)')
 
 	def send_nav_goal(self, client_id: str, x: float, y: float, yaw: float) -> CommandResult:
 		"""자율 주행 목표 (map 프레임). 새 목표는 이전 것을 대체한다."""
@@ -987,6 +1008,8 @@ class RobotService:
 			return denied
 		if not self._features['has_navigation']:
 			return error_result('unavailable', NO_NAVIGATION_MESSAGE)
+		if self._require_node().navigation_states()[1] == 'running':   # Spin 과 컨트롤러가 같은 cmd_vel_nav 를 낸다
+			return error_result('conflict', LOCALIZING_MESSAGE)
 		is_sent = self._run_in_ros(self._send_goal_in_ros, float(x), float(y), float(yaw))
 		if not is_sent:
 			return error_result(

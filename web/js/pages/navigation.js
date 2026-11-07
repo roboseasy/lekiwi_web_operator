@@ -46,6 +46,13 @@ function mapItem(item) {
 		</button></li>`;
 }
 
+/** 자동 위치 찾기 진행 · 결과 (status.navigation.localization). 도는 동안은 AMCL 후보의 퍼짐도. */
+function localizeText(loc) {
+	if (!loc || loc.state === 'idle') return '';
+	if (loc.state !== 'running' || !isNum(loc.xy_std)) return loc.message ?? '';
+	return `${loc.message} (퍼짐 ±${fixed(loc.xy_std, 2)} m · ±${fixed(loc.yaw_std * 180 / Math.PI, 0)}°)`;
+}
+
 export function mount(el, ctx) {
 	el.innerHTML = `
 		<header class="page-head"><h1>자율 주행</h1><span data-k="badge"></span></header>
@@ -57,7 +64,8 @@ export function mount(el, ctx) {
 				<div class="well map-well" data-k="map"></div>
 				<p class="reason" data-k="toolReason"></p>
 				<p class="guide">
-					시작하면 먼저 ‘초기 위치’로 로봇이 실제로 있는 곳을 누른 채 보는 방향으로 끄세요.
+					시작하면 먼저 ‘초기 위치’로 로봇이 실제로 있는 곳을 누른 채 보는 방향으로 끄세요
+					(또는 ‘진행’ 칸의 ‘자동 위치 찾기’: 제자리에서 돌며 스스로 찾습니다).
 					그다음 ‘목표’로 갈 곳을 같은 방법으로 정합니다.
 				</p>
 			</div>
@@ -103,7 +111,9 @@ export function mount(el, ctx) {
 						${readout('torque', '바퀴 토크')}
 					</dl>
 					<p class="guide nav-message" data-k="navMessage"></p>
+					<p class="guide nav-message" data-k="localizeMessage" role="status"></p>
 					<div class="actions panel-actions">
+						<button type="button" class="btn" data-k="localize" hidden>자동 위치 찾기</button>
 						<button type="button" class="btn btn-danger" data-k="cancel" hidden>
 							목표 취소
 						</button>
@@ -221,7 +231,14 @@ export function mount(el, ctx) {
 		put(k.localized, nav && isRunning ? (nav.is_localized ? '잡힘' : '아직') : DASH);
 		put(k.torque, { true: '켜짐', false: '꺼짐' }[status?.motor?.ready] ?? DASH);
 		put(k.navMessage, nav?.message ?? '');
-		k.cancel.hidden = !isGoalActive;
+		// 자동 위치 찾기: 자율 주행이 켜져 있고 목표가 없을 때. 도는 동안은 '목표 취소' 로 멈춘다
+		const localization = nav?.localization;
+		const isLocalizing = localization?.state === 'running';
+		k.localize.hidden = !isRunning;
+		k.localize.disabled = Boolean(toolReason) || isGoalActive || isLocalizing;
+		put(k.localize, isLocalizing ? '위치 찾는 중…' : '자동 위치 찾기');
+		put(k.localizeMessage, isRunning ? localizeText(localization) : '');
+		k.cancel.hidden = !isGoalActive && !isLocalizing;
 		k.cancel.disabled = !ctx.isConnected;
 		put(k.cancelReason, isGoalActive && !ctx.isConnected ? '서버에 연결되지 않았습니다' : '');
 		const speed = nav?.speed_percent;
@@ -279,6 +296,18 @@ export function mount(el, ctx) {
 	k.start.addEventListener('click', () => ctx.startProcess('navigation', { map: selected }));
 	k.stop.addEventListener('click', () => ctx.stopProcess('navigation'));
 	k.cancel.addEventListener('click', () => ctx.conn.post('/api/nav/cancel', {}));
+	k.localize.addEventListener('click', async () => {
+		const isConfirmed = await ctx.confirm({
+			title: '자동으로 위치를 찾을까요?',
+			message: [   // 문장마다 줄을 바꿔 보인다 (dialog p 는 pre-line)
+				'로봇이 제자리에서 최대 두 바퀴 돌며 라이다를 지도와 맞춥니다 (약 1분).',
+				'로봇 둘레를 비워 두세요. ‘목표 취소’ · 비상 정지로 언제든 멈춥니다.',
+				'직사각형 우리처럼 대칭인 곳에서는 반대 방향으로 잡을 수 있습니다. 그때는 ‘초기 위치’로 직접 정하세요.',
+			].join('\n'),
+			confirmLabel: '위치 찾기 시작',
+		});
+		if (isConfirmed) ctx.conn.post('/api/nav/localize', {});
+	});
 	k.speeds.addEventListener('click', (event) => {
 		const button = event.target.closest('[data-percent]');
 		if (button) ctx.conn.post('/api/nav/speed', { percent: Number(button.dataset.percent) });
