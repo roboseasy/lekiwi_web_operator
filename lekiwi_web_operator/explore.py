@@ -148,6 +148,7 @@ class Step:
 		path: 남은 경로 [x0, y0, x1, y1, ...] (map 프레임, 최대 200 점). 없으면 None.
 		frontiers: 닿을 수 있고 블랙리스트가 아닌 프런티어 덩어리 수. 모르면 None.
 		explored_area: 알려진 빈 칸 (0..EXPLORE_FREE_MAX) 넓이 [m²]. 모르면 None.
+		coverage: 다닌 바닥 비율 0..1 (지나온 길에서 EXPLORE_COVER_RADIUS 안 ÷ 닿는 바닥). 모르면 None.
 	"""
 
 	vx: float
@@ -160,6 +161,7 @@ class Step:
 	path: list[float] | None
 	frontiers: int | None
 	explored_area: float | None
+	coverage: float | None
 
 
 # ── 좌표 ─────────────────────────────────────────────────
@@ -940,6 +942,8 @@ class Explorer:
 			candidates, unreachable, skipped = find_candidates(plan_map, dist, self._blacklist)
 			self._frontiers = len(candidates)
 			self._is_all_seen = not candidates and not unreachable and not skipped
+			if candidates and dist is not None:   # 프런티어로 가는 동안에도 화면에 다닌 바닥을 보인다
+				self._update_coverage(plan_map, dist)
 			if not candidates and dist is not None:   # 다 봤어도 아직 안 다닌 바닥이 있으면 그리로 간다
 				cover = self._cover_candidate(plan_map, dist)
 				candidates = [] if cover is None else [cover]
@@ -974,12 +978,13 @@ class Explorer:
 			logger.warning('탐색 계획이 %.2f s 걸렸습니다 (계획 칸 %d × %d)', elapsed, height, width)
 		return finished
 
-	def _cover_candidate(self, plan_map: PlanMap, dist: np.ndarray) -> Candidate | None:
-		"""다닌 바닥: 안 다닌 바닥을 가장 많이 덮는 닿는 칸 (덮는 넓이 ÷ (BFS 거리 + 반지름) 이 가장 큰 칸).
+	def _update_coverage(
+		self, plan_map: PlanMap, dist: np.ndarray,
+	) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+		"""(닿는 칸 (블랙리스트 둘레는 뺀다), 바닥, 다닌 바닥) 을 만들고 self._coverage 를 고친다.
 
-		바닥 = 막힘 · 모름이 아닌 칸 중 로봇 중심이 닿는 칸 (블랙리스트 둘레는 뺀다) 에서 EXPLORE_COVER_RADIUS 안.
-		다닌 바닥 = 지나온 길에서 EXPLORE_COVER_RADIUS 안. 그 비율이 EXPLORE_COVER_RATIO 를 넘거나
-		COVER_MIN_GAIN 넘게 새로 덮을 칸이 없으면 None (끝 판단으로).
+		바닥 = 막힘 · 모름이 아닌 칸 중 닿는 칸에서 EXPLORE_COVER_RADIUS 안. 다닌 바닥 = 그중 지나온 길에서
+		EXPLORE_COVER_RADIUS 안.
 		"""
 		reach = dist >= 0
 		if self._blacklist:
@@ -997,8 +1002,19 @@ class Explorer:
 		covered = dilate(trail, disk) & floor
 		total = int(np.count_nonzero(floor))
 		self._coverage = 1.0 if not total else np.count_nonzero(covered) / total
+		return reach, floor, covered
+
+	def _cover_candidate(self, plan_map: PlanMap, dist: np.ndarray) -> Candidate | None:
+		"""다닌 바닥: 안 다닌 바닥을 가장 많이 덮는 닿는 칸 (덮는 넓이 ÷ (BFS 거리 + 반지름) 이 가장 큰 칸).
+
+		바닥 = 막힘 · 모름이 아닌 칸 중 로봇 중심이 닿는 칸 (블랙리스트 둘레는 뺀다) 에서 EXPLORE_COVER_RADIUS 안.
+		다닌 바닥 = 지나온 길에서 EXPLORE_COVER_RADIUS 안. 그 비율이 EXPLORE_COVER_RATIO 를 넘거나
+		COVER_MIN_GAIN 넘게 새로 덮을 칸이 없으면 None (끝 판단으로).
+		"""
+		reach, floor, covered = self._update_coverage(plan_map, dist)
 		if self._coverage >= config.EXPLORE_COVER_RATIO:
 			return None
+		disk = disk_offsets(config.EXPLORE_COVER_RADIUS, plan_map.cell)
 		gain = np.where(reach, disk_count(floor & ~covered, disk), 0)
 		if gain.max() * plan_map.cell ** 2 < COVER_MIN_GAIN:
 			return None
@@ -1169,7 +1185,7 @@ class Explorer:
 			path = [round(float(value), 3) for point in points for value in point] or None
 		return Step(
 			float(vx), float(wz), state, reason, False, False, target, path,
-			self._frontiers, self._explored_area(),
+			self._frontiers, self._explored_area(), self._coverage,
 		)
 
 	def _finish(self, state: str, reason: str, should_save: bool = False) -> Step:
@@ -1177,7 +1193,7 @@ class Explorer:
 		self._target = None
 		self._finished = Step(
 			0.0, 0.0, state, reason, True, should_save, None, None,
-			self._frontiers, self._explored_area(),
+			self._frontiers, self._explored_area(), self._coverage,
 		)
 		return self._finished
 

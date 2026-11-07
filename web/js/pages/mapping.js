@@ -125,9 +125,10 @@ export function mount(el, ctx) {
 						</button>
 					</div>
 					<p class="reason" data-k="exploreReason"></p>
-					<dl class="readouts readouts-3 explore-stats" data-k="exploreStats" hidden>
+					<dl class="readouts explore-stats" data-k="exploreStats" hidden>
 						${readout('exploreTime', '걸린 시간')}
 						${readout('exploreArea', '알아낸 넓이', 'm²')}
+						${readout('exploreCoverage', '다닌 바닥', '%')}
 						${readout('exploreFrontiers', '남은 프런티어')}
 					</dl>
 					<p class="save-result" data-k="exploreResult" role="status"></p>
@@ -195,6 +196,7 @@ export function mount(el, ctx) {
 		k.exploreStats.hidden = !run || run.state === 'idle';
 		put(k.exploreTime, duration(run?.elapsed));
 		put(k.exploreArea, fixed(run?.explored_area, 1));
+		put(k.exploreCoverage, isNum(run?.coverage) ? String(run.coverage) : DASH);
 		put(k.exploreFrontiers, isNum(run?.frontiers) ? String(run.frontiers) : DASH);
 		putHtml(k.exploreResult, exploreResult(run));
 
