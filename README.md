@@ -356,6 +356,8 @@ Nav2도 **Pi에서** 돈다. ⚠️ 로봇이 스스로 움직인다. 처음에�
 
 **③** 지도 위 도구 **'초기 위치'** → 로봇이 실제로 있는 곳을 **누른 채 로봇이 보는 방향으로 끌었다 놓는다** (RViz `2D Pose Estimate`와 같다). 스캔 점이 지도의 벽과 겹치면 맞은 것이다. 어긋나면 다시 한다. '위치 추정'이 '잡힘'이 된다.
 
+   또는 **'자동 위치 찾기'** ('진행' 칸) → 확인 창 → '위치 찾기 시작': AMCL이 위치 후보를 지도 전체에 뿌리고 (`reinitialize_global_localization`), 로봇이 Nav2 Spin으로 제자리에서 최대 두 바퀴 (0.25 rad/s, 약 1분) 돌며 라이다를 지도와 맞춘다. AMCL 자세의 퍼짐이 위치 ±0.2 m · 방향 ±17° 안으로 세 번 연달아 들어오면 (돌기 시작한 뒤 약 100° 이상) 멈추고 '위치를 찾았습니다'. 두 바퀴 돌아도 안 모이면 '찾지 못했습니다' → '초기 위치'로 직접 정한다. Spin은 Nav2 지역 비용 지도로 충돌을 보고 (막히면 멈춘다), 명령은 컨트롤러와 같은 길 (`cmd_vel_nav` → 속도 완화 · 충돌 감시)로 나간다. 도는 동안 '목표 취소' · 비상 정지로 멈추고, 목표는 정할 수 없다 ('초기 위치'를 찍으면 멈추고 그 위치를 쓴다). ⚠️ 직사각형 우리처럼 대칭인 곳은 180° 돌린 위치와 구분하지 못해 반대로 잡을 수 있다. 가구 같은 특징이 보이는 곳에서 쓴다.
+
 **④** **'목표'** → 갈 곳을 같은 방법으로 정한다. 경로(파란 선)가 생기고 로봇이 따라간다. '진행'에 남은 거리 · 예상 시간 (어림)이 나오고, 도착하면 '도착'.
 
 **⑤** 멈추기: '목표 취소' (토크는 켜진 채) · 비상 정지 · '자율 주행 끄기'. '목표 취소' · 비상 정지는 이 로봇의 Nav2 목표를 모두 취소한다 (RViz나 전에 켰던 게이트웨이가 보낸 목표도).
@@ -649,7 +651,7 @@ ros2 launch: bringup · Cartographer · Nav2 (+ lekiwi_nav2_motor_guard)
 
 어느 화면도 구독하지 않는 채널은 `status`의 그 값이 비어 있다: `odom` · `imu` · `power` · `pose.map`은 null, `motors`는 빈 목록, `rates` · `ages`도 null (대시보드 '보지 않음', 끊김 경고도 없다). 지도 · 경로 · 모터 준비는 늘 받는다.
 
-`status.navigation`: `state` (`unavailable` · `idle` · `active` · `succeeded` · `aborted` · `canceled` · `rejected`), `goal`, `distance_remaining` [m] · `eta` [s] (게이트웨이 어림, 5장), `recoveries` (늘 null), `message`, `is_localized` (지도 위 위치가 1초 안에 왔는지), `speed_percent` (자율 주행 속도 [%] 정수, 5장. 자율 주행을 쓸 수 없거나 보기 전용이면 null).
+`status.navigation`: `state` (`unavailable` · `idle` · `active` · `succeeded` · `aborted` · `canceled` · `rejected`), `goal`, `distance_remaining` [m] · `eta` [s] (게이트웨이 어림, 5장), `recoveries` (늘 null), `message`, `is_localized` (지도 위 위치가 1초 안에 왔는지), `speed_percent` (자율 주행 속도 [%] 정수, 5장. 자율 주행을 쓸 수 없거나 보기 전용이면 null). `localization`: 자동 위치 찾기 `{state: idle | running | succeeded | failed, message, xy_std [m], yaw_std [rad]}` (std 는 도는 동안 amcl_pose 공분산에서).
 
 `status.teleop`에는 `pad` (마지막 입력의 패드)와 `pads` (`drive` · `mapping`마다 `max_level` · `levels` · `max_linear_y`)가 있다. `max_level` · `levels`는 지도 작성 패드 것이다 (전과 같다).
 
@@ -689,7 +691,8 @@ ros2 launch: bringup · Cartographer · Nav2 (+ lekiwi_nav2_motor_guard)
 | POST `/api/explore/stop` | `{}` | 권한 | 자동 주행 멈춤 (토크는 켜진 채) |
 | POST `/api/nav/initial_pose` | `{"x", "y", "yaw"}` | 권한 | 초기 위치 (map 프레임) |
 | POST `/api/nav/goal` | `{"x", "y", "yaw"}` | 권한 | 목표 (새 목표는 이전 것을 바꾼다) |
-| POST `/api/nav/cancel` | `{}` | 연결된 화면 | Nav2 목표 모두 취소 (RViz 등 다른 곳에서 보낸 것도) |
+| POST `/api/nav/cancel` | `{}` | 연결된 화면 | Nav2 목표 모두 취소 (RViz 등 다른 곳에서 보낸 것도) · 도는 자동 위치 찾기도 멈춘다 |
+| POST `/api/nav/localize` | `{}` | 권한 | 자동 위치 찾기 (자율 주행 실행 중, 목표가 없을 때): AMCL 전역 초기화 → Nav2 Spin 최대 두 바퀴 → 모이면 멈춤. 진행 · 결과는 `status.navigation.localization` · 이벤트 |
 | POST `/api/nav/speed` | `{"percent": 25}` | 권한 | 자율 주행 속도: Nav2 최고 속도의 10~100 % (정수). 자율 주행이 꺼져 있어도 받는다 (5장) |
 | POST `/api/odom/reset` | `{}` | 권한 | odom 원점으로 (지도 작성 · 자율 주행 중에는 거절) |
 | POST `/api/arm/start` | `{}` | 권한 | 팔 원격 조작 시작: 팔 토크 켬 · 세션 (조건은 3장 ⑥, PC(ZMQ) 조작 중이면 409. 최대 약 10초) |

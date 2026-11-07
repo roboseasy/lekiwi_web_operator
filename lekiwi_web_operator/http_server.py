@@ -335,6 +335,8 @@ class OperatorRequestHandler(BaseHTTPRequestHandler):
 			return robot.set_initial_pose(client_id, x, y, yaw)
 		if path == '/api/nav/cancel':
 			return robot.cancel_nav_goal(client_id)
+		if path == '/api/nav/localize':
+			return robot.localize(client_id)
 		if path == '/api/nav/speed':
 			percent = body.get('percent')
 			if isinstance(percent, bool) or not isinstance(percent, int):   # 범위는 robot 이 본다
