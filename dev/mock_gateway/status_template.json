@@ -1,0 +1,617 @@
+{
+ "type": "status",
+ "time": 1792938714.9831462,
+ "ros": {
+  "is_ok": true,
+  "domain_id": 44,
+  "node_count": 11
+ },
+ "mode": "idle",
+ "health": {
+  "robot_state_publisher": true,
+  "joint_state_publisher": true,
+  "lekiwi_imu_node": true,
+  "lekiwi_lidar_node": true,
+  "lekiwi_scan_filter_node": true,
+  "lekiwi_motor_driver_node": true,
+  "lekiwi_base_controller_node": true,
+  "front_camera_node": true,
+  "wrist_camera_node": false
+ },
+ "rates": {
+  "scan": 10.0,
+  "odom": 50.0,
+  "imu": 100.0,
+  "motor_states": 30.0,
+  "arm_status": null,
+  "arm_state": null,
+  "front_camera": 16.5,
+  "wrist_camera": null
+ },
+ "ages": {
+  "scan": 0.08,
+  "odom": 0.02,
+  "imu": 0.0,
+  "motor_states": 0.01
+ },
+ "processes": {
+  "bringup": {
+   "state": "running",
+   "is_managed": true,
+   "pid": 1154,
+   "since": 1792936217.5513525,
+   "exit_code": null,
+   "detail": "",
+   "options": {
+    "use_camera": true
+   }
+  },
+  "mapping": {
+   "state": "stopped",
+   "is_managed": false,
+   "pid": null,
+   "since": null,
+   "exit_code": null,
+   "detail": "",
+   "options": {}
+  },
+  "navigation": {
+   "state": "stopped",
+   "is_managed": false,
+   "pid": null,
+   "since": null,
+   "exit_code": null,
+   "detail": "",
+   "options": {},
+   "map": null
+  },
+  "save_map": {
+   "state": "idle",
+   "detail": "",
+   "map": null,
+   "since": null
+  }
+ },
+ "control": {
+  "holder": null
+ },
+ "teleop": {
+  "is_allowed": false,
+  "blocked_reason": "조작 권한이 없습니다",
+  "is_active": false,
+  "command": {
+   "vx": 0.0,
+   "vy": 0.0,
+   "wz": 0.0
+  },
+  "pad": "drive",
+  "level": 7,
+  "max_level": 10,
+  "levels": [
+   [
+    0.01,
+    0.06
+   ],
+   [
+    0.02,
+    0.12
+   ],
+   [
+    0.03,
+    0.17
+   ],
+   [
+    0.04,
+    0.23
+   ],
+   [
+    0.05,
+    0.29
+   ],
+   [
+    0.06,
+    0.35
+   ],
+   [
+    0.07,
+    0.41
+   ],
+   [
+    0.08,
+    0.46
+   ],
+   [
+    0.09,
+    0.52
+   ],
+   [
+    0.1,
+    0.58
+   ],
+   [
+    0.11,
+    0.64
+   ]
+  ],
+  "pads": {
+   "drive": {
+    "max_level": 22,
+    "levels": [
+     [
+      0.01,
+      0.06
+     ],
+     [
+      0.02,
+      0.12
+     ],
+     [
+      0.03,
+      0.17
+     ],
+     [
+      0.04,
+      0.23
+     ],
+     [
+      0.05,
+      0.29
+     ],
+     [
+      0.06,
+      0.35
+     ],
+     [
+      0.07,
+      0.41
+     ],
+     [
+      0.08,
+      0.46
+     ],
+     [
+      0.09,
+      0.52
+     ],
+     [
+      0.1,
+      0.58
+     ],
+     [
+      0.11,
+      0.64
+     ],
+     [
+      0.12,
+      0.7
+     ],
+     [
+      0.13,
+      0.75
+     ],
+     [
+      0.14,
+      0.81
+     ],
+     [
+      0.15,
+      0.87
+     ],
+     [
+      0.16,
+      0.93
+     ],
+     [
+      0.17,
+      0.99
+     ],
+     [
+      0.18,
+      1.04
+     ],
+     [
+      0.19,
+      1.1
+     ],
+     [
+      0.2,
+      1.16
+     ],
+     [
+      0.21,
+      1.28
+     ],
+     [
+      0.22,
+      1.41
+     ],
+     [
+      0.23,
+      1.53
+     ]
+    ],
+    "max_linear_y": 0.23
+   },
+   "mapping": {
+    "max_level": 10,
+    "levels": [
+     [
+      0.01,
+      0.06
+     ],
+     [
+      0.02,
+      0.12
+     ],
+     [
+      0.03,
+      0.17
+     ],
+     [
+      0.04,
+      0.23
+     ],
+     [
+      0.05,
+      0.29
+     ],
+     [
+      0.06,
+      0.35
+     ],
+     [
+      0.07,
+      0.41
+     ],
+     [
+      0.08,
+      0.46
+     ],
+     [
+      0.09,
+      0.52
+     ],
+     [
+      0.1,
+      0.58
+     ],
+     [
+      0.11,
+      0.64
+     ]
+    ],
+    "max_linear_y": 0.1
+   }
+  },
+  "limits": {
+   "max_linear_x": 0.23,
+   "max_linear_y": 0.23,
+   "max_linear_speed": 0.23,
+   "max_angular_z": 1.53,
+   "source": "base_controller"
+  }
+ },
+ "motor": {
+  "ready": false,
+  "is_powered_by_us": false
+ },
+ "estop": {
+  "is_latched": false,
+  "since": null,
+  "label": null
+ },
+ "motors": [
+  {
+   "id": 1,
+   "name": "arm_shoulder_pan",
+   "online": false,
+   "mode": 255,
+   "torque_enabled": false,
+   "position": 0.0,
+   "velocity": 0.0,
+   "load": 0.0,
+   "voltage": 0.0,
+   "temperature": 0.0,
+   "current": 0.0,
+   "moving": false,
+   "status": 0,
+   "position_ticks": 0,
+   "status_labels": []
+  },
+  {
+   "id": 2,
+   "name": "arm_shoulder_lift",
+   "online": false,
+   "mode": 255,
+   "torque_enabled": false,
+   "position": 0.0,
+   "velocity": 0.0,
+   "load": 0.0,
+   "voltage": 0.0,
+   "temperature": 0.0,
+   "current": 0.0,
+   "moving": false,
+   "status": 0,
+   "position_ticks": 0,
+   "status_labels": []
+  },
+  {
+   "id": 3,
+   "name": "arm_elbow_flex",
+   "online": false,
+   "mode": 255,
+   "torque_enabled": false,
+   "position": 0.0,
+   "velocity": 0.0,
+   "load": 0.0,
+   "voltage": 0.0,
+   "temperature": 0.0,
+   "current": 0.0,
+   "moving": false,
+   "status": 0,
+   "position_ticks": 0,
+   "status_labels": []
+  },
+  {
+   "id": 4,
+   "name": "arm_wrist_flex",
+   "online": false,
+   "mode": 255,
+   "torque_enabled": false,
+   "position": 0.0,
+   "velocity": 0.0,
+   "load": 0.0,
+   "voltage": 0.0,
+   "temperature": 0.0,
+   "current": 0.0,
+   "moving": false,
+   "status": 0,
+   "position_ticks": 0,
+   "status_labels": []
+  },
+  {
+   "id": 5,
+   "name": "arm_wrist_roll",
+   "online": false,
+   "mode": 255,
+   "torque_enabled": false,
+   "position": 0.0,
+   "velocity": 0.0,
+   "load": 0.0,
+   "voltage": 0.0,
+   "temperature": 0.0,
+   "current": 0.0,
+   "moving": false,
+   "status": 0,
+   "position_ticks": 0,
+   "status_labels": []
+  },
+  {
+   "id": 6,
+   "name": "arm_gripper",
+   "online": false,
+   "mode": 255,
+   "torque_enabled": false,
+   "position": 0.0,
+   "velocity": 0.0,
+   "load": 0.0,
+   "voltage": 0.0,
+   "temperature": 0.0,
+   "current": 0.0,
+   "moving": false,
+   "status": 0,
+   "position_ticks": 0,
+   "status_labels": []
+  },
+  {
+   "id": 7,
+   "name": "base_left_wheel",
+   "online": true,
+   "mode": 1,
+   "torque_enabled": false,
+   "position": -0.161,
+   "velocity": 0.0,
+   "load": 0.0,
+   "voltage": 11.8,
+   "temperature": 33.0,
+   "current": 0.0,
+   "moving": false,
+   "status": 0,
+   "position_ticks": 1943,
+   "status_labels": []
+  },
+  {
+   "id": 8,
+   "name": "base_back_wheel",
+   "online": true,
+   "mode": 1,
+   "torque_enabled": false,
+   "position": -2.508,
+   "velocity": 0.0,
+   "load": 0.0,
+   "voltage": 11.7,
+   "temperature": 34.0,
+   "current": 0.0,
+   "moving": false,
+   "status": 0,
+   "position_ticks": 413,
+   "status_labels": []
+  },
+  {
+   "id": 9,
+   "name": "base_right_wheel",
+   "online": true,
+   "mode": 1,
+   "torque_enabled": false,
+   "position": 0.723,
+   "velocity": 0.0,
+   "load": 0.0,
+   "voltage": 11.8,
+   "temperature": 34.0,
+   "current": 0.0,
+   "moving": false,
+   "status": 0,
+   "position_ticks": 2519,
+   "status_labels": []
+  }
+ ],
+ "power": {
+  "voltage_min": 11.7,
+  "voltage_max": 11.8
+ },
+ "odom": {
+  "x": -0.0,
+  "y": -0.0,
+  "yaw": 0.0006,
+  "vx": -0.0,
+  "vy": -0.0,
+  "wz": 0.001
+ },
+ "pose": {
+  "map": null,
+  "odom": {
+   "x": -0.0,
+   "y": -0.0,
+   "yaw": 0.0006
+  }
+ },
+ "imu": {
+  "roll": -4.79,
+  "pitch": -11.45,
+  "yaw": -140.82,
+  "gyro": [
+   0.0002,
+   -0.0004,
+   -0.0003
+  ],
+  "accel": [
+   0.122,
+   -0.079,
+   10.347
+  ]
+ },
+ "navigation": {
+  "state": "idle",
+  "goal": null,
+  "distance_remaining": null,
+  "eta": null,
+  "recoveries": null,
+  "message": null,
+  "is_localized": false,
+  "speed_percent": 100
+ },
+ "exploration": {
+  "state": "idle",
+  "reason": null,
+  "started_at": null,
+  "elapsed": null,
+  "explored_area": null,
+  "frontiers": null,
+  "target": null,
+  "path": null,
+  "saved_map": null
+ },
+ "teleop_arm": {
+  "is_follower_present": true,
+  "arm_ready": null,
+  "follower": null,
+  "follower_age": null,
+  "joints": null,
+  "is_session_active": false,
+  "is_torque_maybe_on": false,
+  "blocked_reason": "조작 권한이 없습니다",
+  "leader": {
+   "is_relaying": false,
+   "age": null
+  },
+  "estop": null,
+  "rest": {
+   "state": "idle",
+   "reason": null,
+   "time": null
+  }
+ },
+ "calibration": {
+  "follower": {
+   "robot_id": null,
+   "is_match": null,
+   "reason": "쓰는 보정 이름을 모릅니다 (팔로워 · 프로파일)",
+   "files": [],
+   "motors": null,
+   "rest_pose_ticks": null,
+   "restore_pending": false,
+   "session": {
+    "state": "idle",
+    "robot_id": null,
+    "joints": null,
+    "reason": null
+   }
+  },
+  "leader": {
+   "files": [],
+   "session": {
+    "state": "idle",
+    "calibration_id": null,
+    "joints": null,
+    "reason": null
+   }
+  }
+ },
+ "warnings": [],
+ "agent": {
+  "is_connected": false,
+  "agent_session": null,
+  "host": null,
+  "address": null,
+  "is_approved": false,
+  "ports": [],
+  "calibration_ids": [],
+  "leader": {
+   "state": null,
+   "port": null,
+   "calibration_id": null,
+   "reason": null,
+   "rate_hz": null,
+   "age": null,
+   "joints": null
+  }
+ },
+ "system": {
+  "hostname": "mockbot",
+  "cpu_percent": 0.0,
+  "cpu_temp": 40.0,
+  "load": [
+   0.1,
+   0.1,
+   0.1
+  ],
+  "memory_percent": 10.0,
+  "memory_used": 0,
+  "memory_total": 0,
+  "disk_percent": 10.0,
+  "uptime": 1000.0,
+  "throttled": {
+   "raw": "0x0"
+  }
+ },
+ "network": {
+  "hostname": "mockbot",
+  "interfaces": [
+   {
+    "name": "eth0",
+    "is_up": true,
+    "ipv4": [
+     "192.0.2.10"
+    ]
+   }
+  ],
+  "wifi": {
+   "interface": "wlan0",
+   "is_connected": false,
+   "ssid": null,
+   "signal_dbm": null,
+   "freq_mhz": null
+  },
+  "ethernet": []
+ }
+}

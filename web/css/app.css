@@ -2277,7 +2277,7 @@ dialog p {
 
 	.sidenav {
 		display: grid;
-		grid-template-columns: repeat(8, minmax(0, 1fr));
+		grid-template-columns: repeat(9, minmax(0, 1fr));
 		gap: 0;
 		padding: 4px 2px calc(4px + env(safe-area-inset-bottom));
 		overflow: visible;
@@ -2361,4 +2361,32 @@ dialog p {
 		animation: none !important;
 		transition: none !important;
 	}
+}
+
+/* ── 이동 설계 ─────────────────────────────────────────── */
+
+.motion {
+	display: grid;
+	grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
+	gap: 16px;
+	align-items: start;
+}
+
+@media (max-width: 899px) {
+	.motion {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+.motion .actions {
+	margin-bottom: 12px;
+}
+
+.motion-laps {
+	margin: 0 0 12px;
+	padding: 0;
+	list-style: none;
+	font-size: 13px;
+	line-height: 1.8;
+	font-variant-numeric: tabular-nums;
 }

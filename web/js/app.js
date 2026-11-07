@@ -7,11 +7,12 @@ import * as dashboard from './pages/dashboard.js';
 import * as drive from './pages/drive.js';
 import * as logs from './pages/logs.js';
 import * as mapping from './pages/mapping.js';
+import * as motion from './pages/motion.js';
 import * as navigation from './pages/navigation.js';
 import * as network from './pages/network.js';
 import * as sensors from './pages/sensors.js';
 
-const PAGES = { dashboard, calibration, drive, mapping, navigation, sensors, network, logs };
+const PAGES = { dashboard, calibration, drive, motion, mapping, navigation, sensors, network, logs };
 const THEME_KEY = 'lekiwi-web-operator.theme';   // index.html 첫 스크립트와 같은 이름
 const TOAST_LIMIT = 4;
 // 같은 글이 이 안에 또 오면 (실패 결과와 같은 글의 오류 이벤트, WS · POST 두 길로 보낸 비상 정지의
