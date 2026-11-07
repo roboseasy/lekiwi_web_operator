@@ -49,7 +49,7 @@ NEIGHBOURS: Final[tuple[tuple[int, int], ...]] = tuple(   # 자기 칸과 8-이�
 )
 
 TIGHT_START_REASON: Final[str] = (
-	'주변이 좁아 시작할 수 없습니다. 벽 · 가구에서 50 cm 넘게 떨어진 넓은 곳에 두고 다시 시작하세요'
+	'주변이 좁아 시작할 수 없습니다. 벽 · 가구에서 30 cm 넘게 떨어진 곳에 두고 다시 시작하세요'
 )
 TIGHT_REASON: Final[str] = '주변이 좁아 둘러보지 못해 멈췄습니다. 넓은 곳으로 직접 옮긴 뒤 다시 시작하세요'
 START_SENSOR_REASON: Final[str] = '센서를 기다리다 시작하지 못했습니다'
@@ -196,16 +196,12 @@ def _clamp(value: float, limit: float) -> float:
 def footprint_grow(points: np.ndarray) -> np.ndarray:
 	"""점마다 몸 모양을 얼마나 키워야 그 점이 안에 드는지 [m] (음수: 이미 실제 몸 안).
 
-	몸 모양 = 원(EXPLORE_BODY_RADIUS) ∪ 팔 상자(x 0..EXPLORE_ARM_REACH, |y| ≤ EXPLORE_ARM_HALF_WIDTH).
-	g 만큼 키운 모양은 원(BODY + g) ∪ 상자(x 0..REACH + g, |y| ≤ HALF + g) 다 (상자 모서리는 각지다).
+	몸 모양 = 접은 팔까지 덮는 원(EXPLORE_BODY_RADIUS). g 만큼 키운 모양은 원(BODY + g) 다.
 
 	Args:
 		points: base_footprint 점 (..., 2).
 	"""
-	x, y = points[..., 0], points[..., 1]
-	circle = np.hypot(x, y) - config.EXPLORE_BODY_RADIUS
-	box = np.maximum(x - config.EXPLORE_ARM_REACH, np.abs(y) - config.EXPLORE_ARM_HALF_WIDTH)
-	return np.minimum(circle, np.where(x >= 0.0, box, np.inf))
+	return np.hypot(points[..., 0], points[..., 1]) - config.EXPLORE_BODY_RADIUS
 
 
 def arc_pose(vx: float, wz: float, t: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -687,6 +683,7 @@ class Explorer:
 		self._progress: tuple[float, float, float] | None = None   # (x, y, 시각)
 		self._empty_seq: int | None = None
 		self._can_start = False
+		self._is_all_seen = False   # 지난 계획에 프런티어가 하나도 없었다 (갈 곳 · 못 갈 곳 · 건너뛴 곳 모두)
 		self._frontiers: int | None = None
 
 	def step(self, snapshot: Snapshot) -> Step:
@@ -727,7 +724,9 @@ class Explorer:
 				(np.hypot(points[:, 0], points[:, 1]) < config.EXPLORE_ROTATION_RADIUS).any()
 			)
 			finished = None if is_tight else self._plan(s, plan_map)
-			if is_tight or not self._can_start:
+			# 몸 밖으로 못 나가도 지금 자리에서 볼 프런티어가 있거나 (돌아서 본다) 볼 곳이 하나도 없으면
+			# (작은 방이 둘러보기에 다 보였다: 끝 판단 M7) 시작한다
+			if is_tight or not (self._can_start or self._frontiers or self._is_all_seen):
 				return self._finish('stopped', TIGHT_START_REASON)
 			if finished is not None:
 				return finished
@@ -875,7 +874,7 @@ class Explorer:
 		"""M6: 충돌 예측이 허락하는 쪽으로 제자리에서 돈다 (가 본 방향 폭이 EXPLORE_LOOK_ANGLE 넘을 때까지).
 
 		돈 각은 지도 위 자세로 잰다 (돌지 못하면 M8 걸림이 먼저 끝낸다). 막히면 한 번만 돌아선다:
-		두 끝이 다 막힌 틈은 오가도 넓어지지 않는다 (회전 원 바로 밖의 가는 기둥을 팔 상자 모서리가 쓸 때).
+		두 끝이 다 막힌 틈은 오가도 넓어지지 않는다.
 
 		Returns:
 			이번 명령. 돌아선 뒤 다시 막혔거나 어느 쪽으로도 돌 수 없으면 None.
@@ -912,6 +911,7 @@ class Explorer:
 		self._can_start = dist is not None and bool(((dist >= 0) & ~body).any())
 		candidates, unreachable, skipped = find_candidates(plan_map, dist, self._blacklist)
 		self._frontiers = len(candidates)
+		self._is_all_seen = not candidates and not unreachable and not skipped
 		finished = None
 		if candidates:
 			self._empty_seq = None
@@ -956,7 +956,8 @@ class Explorer:
 			return None
 		if grid.seq == self._empty_seq or not is_settled:
 			return None
-		if not self._can_start or area < config.EXPLORE_MIN_FREE_AREA:
+		# 좁게 닿아도 못 간 프런티어가 없으면 지도는 다 됐다 (작은 방). 있으면 둘레가 막힌 것
+		if (not self._can_start or area < config.EXPLORE_MIN_FREE_AREA) and (unreachable or skipped):
 			return self._finish('stopped', NARROW_REASON)
 		if is_point_blocked:
 			self._empty_seq = None
