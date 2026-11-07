@@ -199,6 +199,11 @@ class RobotApi(Protocol):
 		is_forced (POST force: true) 면 접지 않고 팔 힘을 뺀 뒤 끈다 (편 팔은 떨어진다).
 		"""
 
+	def delete_map(self, client_id: str, name: str) -> CommandResult:
+		"""저장한 지도 하나 (yaml · 이미지 · pbstream) 를 지운다 (holder). 자율 주행이 쓰는 지도는 거절한다.
+
+		성공하면 결과에 'deleted': 지운 파일 이름 목록."""
+
 	def save_map(self, client_id: str) -> CommandResult:
 		"""지도 작성 중에 save_map.sh 를 백그라운드로 실행. 결과는 status · event."""
 

@@ -350,7 +350,7 @@ PC에 USB로 꽂은 SO-101 리더암을 읽는 프로그램(PC 에이전트, 저
 
 Nav2도 **Pi에서** 돈다. ⚠️ 로봇이 스스로 움직인다. 처음에는 **1 m 안쪽 목표**만 준다.
 
-**①** '자율 주행' 화면 → '지도' 목록에서 고른다. 새로 저장한 지도('마지막 저장')가 먼저 골라져 있고, 아래에 미리보기가 나온다.
+**①** '자율 주행' 화면 → '지도' 목록에서 고른다. 새로 저장한 지도('마지막 저장')가 먼저 골라져 있고, 아래에 미리보기가 나온다. 필요 없는 옛 지도는 골라서 **'고른 지도 삭제'** → 확인 창 → '지우기' (조작 권한이 필요하다. 같은 이름의 pgm · pbstream도 지우며 되돌릴 수 없다. 자율 주행이 켜져 있으면 버튼이 숨는다).
 
 **②** **'자율 주행 시작'** → 확인 창 → '자율 주행 시작'. 게이트웨이가 먼저 조작을 멈추고 웹에서 켠 토크를 끈 뒤 `ros2 launch lekiwi_navigation2 navigation.launch.py map:=<지도> operator_nodes:=lekiwi_web_operator_view`를 켠다. '실행 중'이 되면 ③으로 간다.
 
@@ -684,6 +684,7 @@ ros2 launch: bringup · Cartographer · Nav2 (+ lekiwi_nav2_motor_guard)
 | POST `/api/process/start` | `{"name", "options"}` | 권한 | `bringup` `{use_camera}` · `mapping` `{}` · `navigation` `{map: "<파일>.yaml"}` (자율 주행은 PC(ZMQ) 조작 중이면 409) |
 | POST `/api/process/stop` | `{"name", "force"?}` | 권한 | 웹에서 켠 것 · 터미널에서 켠 것 모두 끈다. 로봇은 팔 토크가 켜져 있을 수 있으면 (이 게이트웨이가 켬 · `arm_ready` true) 먼저 팔을 접고 끈다 (최대 약 12초, 못 접으면 409). `force: true`면 접지 않고 팔 힘을 뺀 뒤 끈다 (3장 ⑦) |
 | POST `/api/map/save` | `{}` | 권한 | 지도 작성 중 지도 저장 |
+| POST `/api/maps/delete` | `{"name": "<파일>.yaml"}` | 권한 | 저장 지도 지우기 (yaml · 그 pgm · 같은 이름 pbstream, '마지막 저장'이면 `last_map.txt`도). 자율 주행이 쓰는 지도는 409. 성공하면 `deleted`: 지운 파일 이름 |
 | POST `/api/explore/start` | `{}` | 권한 | 자동 주행 맵 생성 시작 (지도 작성 중, 이 권한으로 주행을 켰을 때, PC(ZMQ) 조작 중이 아닐 때. 4장) |
 | POST `/api/explore/stop` | `{}` | 권한 | 자동 주행 멈춤 (토크는 켜진 채) |
 | POST `/api/nav/initial_pose` | `{"x", "y", "yaw"}` | 권한 | 초기 위치 (map 프레임) |

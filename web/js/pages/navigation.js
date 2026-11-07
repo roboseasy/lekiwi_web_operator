@@ -80,6 +80,7 @@ export function mount(el, ctx) {
 						<button type="button" class="btn btn-danger" data-k="stop" hidden>
 							자율 주행 끄기
 						</button>
+						<button type="button" class="btn" data-k="remove">고른 지도 삭제</button>
 					</div>
 					<p class="reason" data-k="reason"></p>
 				</section>
@@ -197,6 +198,9 @@ export function mount(el, ctx) {
 
 		k.start.hidden = isActive;
 		k.stop.hidden = !isActive;
+		// 지우기: 꺼져 있을 때만 (켜면 목록을 접는다. 쓰는 지도는 서버도 거절한다)
+		k.remove.hidden = isActive;
+		k.remove.disabled = Boolean(ctx.blockReason()) || !selected || !maps?.some((item) => item.name === selected);
 		let reason = ctx.processBlock('navigation', isActive ? 'stop' : 'start');
 		if (!reason && !isActive && !hasNavigation) reason = '이 로봇에서는 자율 주행을 쓸 수 없습니다';
 		if (!reason && !isActive && !selected) reason = '먼저 지도를 고르세요';
@@ -259,6 +263,19 @@ export function mount(el, ctx) {
 		k.preview.hidden = true;
 	});
 	k.reload.addEventListener('click', loadMaps);
+	k.remove.addEventListener('click', async () => {
+		const name = selected;
+		const isConfirmed = await ctx.confirm({
+			title: '이 지도를 지울까요?',
+			message: `${name}\n같은 이름의 지도 그림(pgm) · Cartographer 상태(pbstream)도 함께 지웁니다. 되돌릴 수 없습니다.`,
+			confirmLabel: '지우기',
+			isDanger: true,
+		});
+		if (!isConfirmed) return;
+		const result = await ctx.conn.post('/api/maps/delete', { name });
+		if (result.ok && selected === name) selected = null;   // 다음 목록에서 마지막 저장 지도를 고른다
+		loadMaps();
+	});
 	k.start.addEventListener('click', () => ctx.startProcess('navigation', { map: selected }));
 	k.stop.addEventListener('click', () => ctx.stopProcess('navigation'));
 	k.cancel.addEventListener('click', () => ctx.conn.post('/api/nav/cancel', {}));

@@ -877,6 +877,25 @@ class RobotService:
 				return denied
 		return self._processes.stop(name)
 
+	def delete_map(self, client_id: str, name: str) -> CommandResult:
+		"""저장한 지도 하나를 지운다 (holder). 자율 주행이 쓰는 지도는 지우지 않는다."""
+		denied = self._check_operator(client_id)
+		if denied is not None:
+			return denied
+		if not map_files.is_valid_map_name(name):
+			return error_result('bad_request', f'지도 이름이 올바르지 않습니다: {name}')
+		if self._processes.status()['navigation'].get('map') == name:
+			return error_result('conflict', '자율 주행이 쓰는 지도는 지울 수 없습니다. 자율 주행을 끈 뒤 지우세요')
+		try:
+			deleted = map_files.delete_map(config.map_dir(), name)
+		except OSError as error:
+			logger.warning('지도 %s 를 지우지 못했습니다: %s', name, error)
+			return error_result('failed', f'지도를 지우지 못했습니다: {error}')
+		if deleted is None:
+			return error_result('bad_request', f'지도 파일을 찾을 수 없습니다: {name}')
+		logger.info('지도를 지웠습니다: %s', ', '.join(deleted))
+		return ok_result(f'지도를 지웠습니다: {name}', deleted=deleted)
+
 	def save_map(self, client_id: str) -> CommandResult:
 		"""지도 작성 중에 지도를 저장한다 (결과는 status · event)."""
 		denied = self._check_operator(client_id)
