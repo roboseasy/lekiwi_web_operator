@@ -1755,6 +1755,18 @@ kbd {
 	gap: 8px;
 }
 
+/* 지도 작성: 지도 60 % · 카메라 20 % · 지도 작성 · 자동 주행 · 조작 20 % (틈을 뺀 폭 기준) */
+.split-mapping {
+	grid-template-columns: minmax(0, 3fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+
+/* 한 줄로 내려가면 (1099 px 이하) 아래 .split 규칙이 이기고, 카메라는 자율 주행처럼 나란히 둔다 */
+@media (min-width: 1100px) {
+	.mapping-cameras .nav-cameras {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
 /* CPU · RAM · 'RAM 사용 / 전체' 를 한 줄에. 마지막 칸은 '19.9 / 31.0 GB' 가 들게 넓게 */
 .nav-system {
 	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);

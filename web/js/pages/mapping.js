@@ -1,15 +1,17 @@
-// 지도 작성: 시작 · 끄기 · 실시간 지도(지도 + 스캔 + 로봇) · 자동 주행 맵 생성 · 조작 패드 축소판 · 지도 저장
-// (SPEC §11-3, 자동 주행 맵 생성 명세 §4)
+// 지도 작성: 시작 · 끄기 · 실시간 지도(지도 + 스캔 + 로봇) · 자동 주행 맵 생성 · 작은 카메라 두 대 ·
+// 조작 패드 축소판 · 지도 저장 (SPEC §11-3, 자동 주행 맵 생성 명세 §4)
 
 import {
 	DASH, badge, duration, esc, fixed, isExploring, isNum, isOn, processBadge, put, putHtml,
 	readout, refs,
 } from '../format.js';
 import { createTeleop } from '../teleop.js';
+import { createCameraView } from '../widgets/camera_view.js';
 import { createMapView } from '../widgets/map_view.js';
 
 export const title = '지도 작성';
-export const channels = ['map', 'scan'];
+// 카메라는 작게 보여도 조작 화면과 같은 프레임을 받는다 (Pi CPU, README 9장)
+export const channels = ['map', 'scan', 'camera/front', 'camera/wrist'];
 
 const EXPLORE_STATES = {   // status.exploration.state
 	idle: ['neutral', '대기'],
@@ -78,8 +80,16 @@ function exploreResult(run) {
 export function mount(el, ctx) {
 	el.innerHTML = `
 		<header class="page-head"><h1>지도 작성</h1><span data-k="badge"></span></header>
-		<div class="split">
+		<div class="split split-mapping">
 			<div class="well map-well" data-k="map"></div>
+			<!-- 지도 옆 칸: 몰면서 전방 · 손목 영상을 같이 본다 -->
+			<section class="panel mapping-cameras" aria-labelledby="mapping-cameras-title">
+				<h2 id="mapping-cameras-title">카메라</h2>
+				<div class="nav-cameras">
+					<div class="well camera-well" data-k="front"></div>
+					<div class="well camera-well" data-k="wrist"></div>
+				</div>
+			</section>
 			<div class="split-side">
 				<section class="panel" aria-labelledby="mapping-title">
 					<h2 id="mapping-title">지도 작성</h2>
@@ -127,7 +137,9 @@ export function mount(el, ctx) {
 		</div>`;
 	const k = refs(el);
 	const map = createMapView(k.map);
-	parts = [map, createTeleop(k.teleop, ctx, true)];
+	const front = createCameraView(k.front, '전방 카메라');
+	const wrist = createCameraView(k.wrist, '손목 카메라');
+	parts = [map, front, wrist, createTeleop(k.teleop, ctx, true)];
 	k.start.addEventListener('click', () => ctx.startProcess('mapping'));
 	k.stop.addEventListener('click', () => ctx.stopProcess('mapping'));
 	k.save.addEventListener('click', () => ctx.conn.post('/api/map/save', {}));
@@ -140,6 +152,7 @@ export function mount(el, ctx) {
 		if (result.ok && ctx.status) ctx.status.exploration = { state: 'starting' };
 	});
 	k.exploreStop.addEventListener('click', () => ctx.conn.post('/api/explore/stop', {}));
+	ctx.on('camera', ({ camera, blob }) => (camera === 'front' ? front : wrist).setFrame(blob));
 	ctx.on('map', render);
 	ctx.on('scan', (message) => map.setScan(message));
 
