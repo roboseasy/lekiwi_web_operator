@@ -317,6 +317,11 @@ class OperatorRequestHandler(BaseHTTPRequestHandler):
 			return robot.stop_process(client_id, name, is_forced)
 		if path == '/api/map/save':
 			return robot.save_map(client_id)
+		if path == '/api/maps/delete':
+			name = body.get('name')
+			if not isinstance(name, str):
+				return error_result('bad_request', 'name(지도 yaml 파일 이름 문자열)이 필요합니다')
+			return robot.delete_map(client_id, name)
 		if path == '/api/explore/start':
 			return robot.start_exploration(client_id)
 		if path == '/api/explore/stop':

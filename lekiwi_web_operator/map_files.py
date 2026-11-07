@@ -1,4 +1,4 @@
-"""저장된 지도 (save_map.sh 결과) 의 목록 · 이름 검사 · 미리보기 (SPEC §10)."""
+"""저장된 지도 (save_map.sh 결과) 의 목록 · 이름 검사 · 미리보기 · 지우기 (SPEC §10)."""
 
 import io
 import logging
@@ -92,6 +92,43 @@ def list_maps(map_dir: Path) -> list[dict]:
 	return maps
 
 
+def delete_map(map_dir: Path, name: str) -> list[str] | None:
+	"""지도 하나를 지운다: yaml → 그 이미지 → 같은 이름의 pbstream (save_map.sh 가 만드는 셋).
+
+	yaml 을 먼저 지워 중간에 실패해도 목록에 깨진 지도가 남지 않는다. 이미지는 지도 폴더 안에 있고 다른 yaml 이
+	함께 쓰지 않을 때만 지운다. last_map.txt 가 이 지도를 가리키면 그것도 지운다 (다음 저장이 다시 쓴다).
+
+	Args:
+		map_dir: 지도 폴더 (config.map_dir()).
+		name: 브라우저가 보낸 yaml 파일 이름.
+
+	Returns:
+		지운 파일 이름들. 그런 지도가 없으면 None.
+
+	Raises:
+		OSError: 지우지 못했을 때 (권한 등). 그 전에 지운 파일은 되돌리지 않는다.
+	"""
+	path = resolve_map(map_dir, name)
+	if path is None:
+		return None
+	folder = path.parent
+	try:
+		image = _image_path(path, _load_yaml(path)).resolve()
+	except _READ_ERRORS:   # 깨진 yaml 도 지울 수 있게: map_saver 이름 규칙 (같은 이름 .pgm)
+		image = path.with_suffix('.pgm')
+	targets = [path, path.with_suffix('.pbstream')]
+	if image.parent == folder and not _is_image_shared(folder, path, image):
+		targets.insert(1, image)
+	deleted = []
+	for target in targets:
+		if target.is_file():
+			target.unlink()
+			deleted.append(target.name)
+	if _last_map_name(map_dir) == name:
+		(map_dir / LAST_MAP_FILE).unlink(missing_ok=True)
+	return deleted
+
+
 def render_preview(map_dir: Path, name: str) -> bytes | None:
 	"""지도 이미지를 PNG 로 (긴 변 PREVIEW_MAX_SIZE 이하). 없거나 못 읽으면 None."""
 	path = resolve_map(map_dir, name)
@@ -120,6 +157,19 @@ def _image_path(yaml_path: Path, data: dict) -> Path:
 	"""yaml 의 image. 상대 경로면 yaml 폴더 기준 (map_server 와 같다)."""
 	image = Path(data['image'])
 	return image if image.is_absolute() else yaml_path.parent / image
+
+
+def _is_image_shared(folder: Path, yaml_path: Path, image: Path) -> bool:
+	"""같은 폴더의 다른 yaml 이 이 이미지를 쓰는지 (못 읽는 yaml 은 쓰지 않는다고 본다)."""
+	for other in folder.glob('*.yaml'):
+		if other == yaml_path:
+			continue
+		try:
+			if _image_path(other, _load_yaml(other)).resolve() == image:
+				return True
+		except _READ_ERRORS:
+			continue
+	return False
 
 
 def _last_map_name(map_dir: Path) -> str | None:
