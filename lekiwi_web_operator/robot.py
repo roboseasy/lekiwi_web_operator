@@ -118,7 +118,7 @@ SAVE_MAP_MAX_TIME: Final[float] = (
 )
 IDLE_EXPLORATION: Final[dict] = {
 	'state': 'idle', 'reason': None, 'started_at': None, 'elapsed': None, 'explored_area': None,
-	'frontiers': None, 'target': None, 'path': None, 'saved_map': None,
+	'frontiers': None, 'coverage': None, 'target': None, 'path': None, 'saved_map': None,
 }
 EXPLORE_STARTED_MESSAGE: Final[str] = '자동 주행 맵 생성을 시작했습니다'
 EXPLORING_MESSAGE: Final[str] = '자동 주행 맵 생성 중입니다'
@@ -200,6 +200,8 @@ def _step_status(step: explore.Step) -> dict:
 			None if step.explored_area is None else round(float(step.explored_area), 2)
 		),
 		'frontiers': None if step.frontiers is None else int(step.frontiers),
+		# 다닌 바닥 [%] (0..100 정수)
+		'coverage': None if step.coverage is None else round(float(step.coverage) * 100),
 		'target': None if target is None else {
 			'x': round(float(target[0]), 3), 'y': round(float(target[1]), 3),
 		},

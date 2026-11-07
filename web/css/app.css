@@ -1773,6 +1773,7 @@ kbd {
 }
 
 .explore-stats {
+	grid-template-columns: repeat(2, minmax(0, 1fr));   /* 넷: 좁은 오른쪽 칸에서도 2 × 2 */
 	margin-top: 14px;
 }
 

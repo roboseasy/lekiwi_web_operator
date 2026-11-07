@@ -203,7 +203,9 @@ SAVE_MAP_TIMEOUT: Final[float] = 120.0       # [s] save_map.sh 전체 제한
 # 2026-11-07 까지는 원 0.19 ∪ 팔 상자 (앞 0.22 · 좌우 0.10) 에 여유 0.08 이라 회전 반지름이 0.322 였다
 # (안쪽 0.7 m 우리에서 시작하지 못했다)
 EXPLORE_BODY_RADIUS: Final[float] = 0.22       # [m] 접은 팔의 가장 먼 점 0.217 + 3 mm
-EXPLORE_MARGIN: Final[float] = 0.08            # [m] 충돌 예측 여유 (전진 · 호)
+# [m] 충돌 예측 여유 (전진 · 호). 벽 · 가구에서 5 cm 까지 다닌다 (2026-11-07, 0.08 에서 줄였다).
+# 원 0.22 는 옆이 실물(0.180)보다 4 cm 커서 옆은 실제로 약 9 cm, 정면 팔 끝(0.212)은 약 6 cm 남는다
+EXPLORE_MARGIN: Final[float] = 0.05
 # [m] 제자리 회전 때 비워 둘 반지름 (0.27). 원은 돌아도 어느 점에도 다가가지 않아 여유는 자세 · 모양 오차
 # 몫만 둔다 (EXPLORE_MARGIN 보다 작다. 실측 우리에서 가장 가까운 벽이 0.29 m 였다)
 EXPLORE_ROTATION_RADIUS: Final[float] = EXPLORE_BODY_RADIUS + 0.05
@@ -229,14 +231,18 @@ EXPLORE_FREE_MAX: Final[int] = 49              # 0..49 빈 곳 (안 닿은 증�
 # 65..100 막힘 (높이 2.5 cm 스캔의 한 번 닿음은 거른다). 50..64 는 애매: 지나갈 수 있다고 보고
 # 프런티어도 아니다 (가까운 것은 실시간 스캔 점이 막는다). -1 은 모름
 EXPLORE_OCCUPIED_MIN: Final[int] = 65
-EXPLORE_CELL: Final[float] = 0.1               # [m] 계획 칸 (0.05 m 지도 2 × 2)
-# [m] 계획 격자에서 막힘 · 모름 · 스캔 점을 부풀리는 반지름: 회전 반지름 약 0.32 + 칸 나눔 · 따라가기 오차.
-# 약 0.95 m 보다 좁은 문 · 틈은 지나지 않는다 (직접 몰고 지나간 뒤 다시 시작)
+# [m] 계획 칸 = 0.05 m 지도 한 칸 (2026-11-07 까지 0.1: 칸 나눔 오차가 커서 벽 가까이 다니지 못했다)
+EXPLORE_CELL: Final[float] = 0.05
+# [m] 계획 격자에서 막힘 · 모름 · 스캔 점을 부풀리는 반지름 (칸 중심 거리). 먼저 넓은 반지름으로 찾고
+# 갈 곳이 없을 때만 좁은 반지름으로 다시 찾는다: 넓은 곳은 벽에서 넉넉히 떨어져 다니고 (최단 경로가 문틀 모서리를
+# 스쳐 충돌 예측에 막히지 않게), 좁은 곳만 벽 · 가구 5 cm 까지 다닌다 (2026-11-07)
 EXPLORE_PLAN_RADIUS: Final[float] = 0.45
+# 제자리 회전 반지름 0.27 + 칸 반 개: 고른 칸에서는 늘 제자리에서 돌 수 있다. 약 0.65 m 보다 좁은 틈은 지나지 않는다
+EXPLORE_TIGHT_PLAN_RADIUS: Final[float] = 0.30
 EXPLORE_VIEW_DISTANCE: Final[float] = EXPLORE_PLAN_RADIUS + 0.25   # [m] 프런티어를 보러 가는 칸까지
 EXPLORE_LIVE_RANGE: Final[float] = 3.0         # [m] 계획 격자 · 기억에 넣는 스캔 점 거리
 EXPLORE_GUARD_RANGE: Final[float] = 1.0        # [m] 충돌 예측에 넣는 점 · 지도 막힘 칸 거리
-EXPLORE_MIN_FRONTIER: Final[float] = 0.4       # [m] 이보다 짧은 프런티어 덩어리는 버린다 (4 칸)
+EXPLORE_MIN_FRONTIER: Final[float] = 0.4       # [m] 이보다 짧은 프런티어 덩어리는 버린다 (8 칸)
 EXPLORE_BLACKLIST_RADIUS: Final[float] = 0.5   # [m] 실패한 목표 둘레는 다시 고르지 않는다
 EXPLORE_PLAN_PERIOD: Final[float] = 1.0        # [s] 목표가 없을 때 다시 계획 · 가는 중 경로 다시 보기
 # [s] 목표에 닿아 프런티어를 보고 기다리는 시간 (Cartographer 정지 중 2 s 마다 삽입 + 지도 1 Hz)
@@ -247,6 +253,12 @@ EXPLORE_PROGRESS_DISTANCE: Final[float] = 0.1  # [m]
 EXPLORE_MAX_FAILURES: Final[int] = 3           # 목표가 연달아 이만큼 실패하면 멈춘다 (stuck)
 EXPLORE_MIN_FREE_AREA: Final[float] = 2.0      # [m²] 이보다 좁게 닿으면 '다 만들었다'고 하지 않는다
 EXPLORE_MAX_DURATION: Final[float] = 900.0     # [s] 이 시간이 지나면 끝내고 저장한다
+# 다닌 바닥: 프런티어가 없어져도 (라이다로 다 봤어도) 지나온 길에서 EXPLORE_COVER_RADIUS 안에 든 칸이
+# 닿는 칸의 EXPLORE_COVER_RATIO 를 넘을 때까지 아직 안 간 칸으로 간다 (작은 방이 둘러보기만으로 끝나지 않게,
+# 여러 자리에서 스캔해 벽을 또렷하게). 지나온 길 = odom 을 Cartographer 가 지도에 맞춘 지도 위 자세
+EXPLORE_COVER_RADIUS: Final[float] = 0.3       # [m]
+EXPLORE_COVER_RATIO: Final[float] = 0.9
+EXPLORE_TRAIL_STEP: Final[float] = 0.05        # [m] 지나온 길에 자세를 더하는 간격
 EXPLORE_LOOK_ANGLE: Final[float] = math.radians(45.0)   # 시작할 때 둘러보기 (바퀴 사각 최대 38.5° 보다 크게)
 # 걸림: 명령한 만큼 지도 위 자세가 움직이지 않으면 (높이 2.5 cm 라이다가 못 보는 가구 아래 틈 ·
 # 턱에 몸체 · 팔이 걸림). 로봇에서 맞출 값

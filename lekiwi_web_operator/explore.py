@@ -6,9 +6,11 @@ robot.RobotService 의 탐색 스레드가 EXPLORE_CONTROL_PERIOD 마다 Snapsho
 이 모듈은 센서 값만 보고 갈 곳 · 속도 · 끝을 정한다.
 
 흐름: 새 스캔 · odom · 자세 · 지도를 기다린다 → 제자리에서 EXPLORE_LOOK_ANGLE 넘게 둘러본다
-(바퀴 쪽 사각을 한 번씩 보려고) → 새 지도 두 장 → 계획 (지도 0.1 m 칸 ∪ 스캔 점 ∪ 모름을
+(바퀴 쪽 사각을 한 번씩 보려고) → 새 지도 두 장 → 계획 (지도 0.05 m 칸 ∪ 스캔 점 ∪ 모름을
 EXPLORE_PLAN_RADIUS 로 부풀린 격자에서 BFS, 프런티어 덩어리를 보러 갈 칸) → 따라가기
 (방향 오차가 크면 제자리 회전, 아니면 전진 + 비례 회전) → 닿으면 프런티어 쪽을 보고 기다린다.
+프런티어가 없어지면 지나온 길에서 EXPLORE_COVER_RADIUS 밖인 닿는 칸으로 간다 (다닌 바닥이
+EXPLORE_COVER_RATIO 를 넘을 때까지). 그다음 끝 판단 (M7).
 모든 명령은 내보내기 전에 충돌 예측(unsafe_points)을 지난다.
 부딪힘 안전은 정면 시야(약 ±42°)의 실시간 스캔이 부딪힐 점을 미리 보는 데 기댄다 (시험 S10).
 스캔 기억 · 지도 막힘 칸은 바퀴 사각에 든 점과 스캔에서 잠깐 빠지는 어둡거나 가는 물체를 붙잡아 둔다.
@@ -44,6 +46,7 @@ LOOK_MAP_SEQS: Final[int] = 2                # 처음 둘러본 뒤 기다리는
 ORIGIN_YAW_TOLERANCE: Final[float] = 1e-3    # [rad] 지도 원점이 이보다 돌아가 있으면 기다린다
 PLAN_WARN_TIME: Final[float] = 0.3           # [s] 계획 한 번이 이보다 오래 걸리면 경고
 PATH_MAX_POINTS: Final[int] = 200            # Step.path 점 수 상한
+COVER_MIN_GAIN: Final[float] = 0.02          # [m²] 안 다닌 바닥을 이보다 적게 덮는 칸으로는 가지 않는다
 NEIGHBOURS: Final[tuple[tuple[int, int], ...]] = tuple(   # 자기 칸과 8-이웃 (dilate 모양)
 	(drow, dcol) for drow in (-1, 0, 1) for dcol in (-1, 0, 1)
 )
@@ -62,7 +65,9 @@ BUMP_REASON: Final[str] = '무언가에 걸린 것 같아 멈췄습니다. 몸�
 TIME_LIMIT_REASON: Final[str] = (
 	f'{config.EXPLORE_MAX_DURATION / 60:.0f}분이 지나 탐색을 끝냈습니다'
 )
-DONE_REASON: Final[str] = '지도를 다 만들었습니다 (갈 수 없는 곳 {unreachable}곳 · 건너뛴 곳 {skipped}곳)'
+DONE_REASON: Final[str] = (
+	'지도를 다 만들었습니다 (다닌 바닥 {coverage}% · 갈 수 없는 곳 {unreachable}곳 · 건너뛴 곳 {skipped}곳)'
+)
 SCAN_WAIT: Final[str] = '라이다 스캔을 기다리는 중입니다'
 ODOM_WAIT: Final[str] = 'odom 을 기다리는 중입니다'
 POSE_WAIT: Final[str] = '지도 위 자세를 기다리는 중입니다'
@@ -143,6 +148,7 @@ class Step:
 		path: 남은 경로 [x0, y0, x1, y1, ...] (map 프레임, 최대 200 점). 없으면 None.
 		frontiers: 닿을 수 있고 블랙리스트가 아닌 프런티어 덩어리 수. 모르면 None.
 		explored_area: 알려진 빈 칸 (0..EXPLORE_FREE_MAX) 넓이 [m²]. 모르면 None.
+		coverage: 다닌 바닥 비율 0..1 (지나온 길에서 EXPLORE_COVER_RADIUS 안 ÷ 닿는 바닥). 모르면 None.
 	"""
 
 	vx: float
@@ -155,6 +161,7 @@ class Step:
 	path: list[float] | None
 	frontiers: int | None
 	explored_area: float | None
+	coverage: float | None
 
 
 # ── 좌표 ─────────────────────────────────────────────────
@@ -284,6 +291,17 @@ def disk_offsets(radius: float, cell: float) -> tuple[tuple[int, int], ...]:
 	)
 
 
+def disk_count(mask: np.ndarray, offsets: tuple[tuple[int, int], ...]) -> np.ndarray:
+	"""칸마다 offsets 모양 안에 든 mask True 칸 수 (격자 밖은 0 으로 본다)."""
+	reach = max(max(abs(drow), abs(dcol)) for drow, dcol in offsets)
+	padded = np.pad(mask.astype(np.int32), reach)
+	height, width = mask.shape
+	out = np.zeros(mask.shape, np.int32)
+	for drow, dcol in offsets:
+		out += padded[reach + drow:reach + drow + height, reach + dcol:reach + dcol + width]
+	return out
+
+
 def dilate(mask: np.ndarray, offsets: tuple[tuple[int, int], ...]) -> np.ndarray:
 	"""mask 의 True 칸을 offsets 모양만큼 넓힌다 (격자 밖은 False 로 본다)."""
 	reach = max(max(abs(drow), abs(dcol)) for drow, dcol in offsets)
@@ -364,7 +382,7 @@ def build_plan_map(grid: GridSnapshot) -> PlanMap:
 
 
 def passable_grid(
-	plan: PlanMap, points: np.ndarray, x: float, y: float,
+	plan: PlanMap, points: np.ndarray, x: float, y: float, radius: float = config.EXPLORE_PLAN_RADIUS,
 ) -> tuple[np.ndarray, np.ndarray]:
 	"""M4: 계획 격자 = 지도 막힘 ∪ 모름 ∪ 점이 든 칸을 EXPLORE_PLAN_RADIUS 까지 막은 것.
 
@@ -379,6 +397,7 @@ def passable_grid(
 		points: 막을 점 (map 프레임 (N, 2), 실시간 스캔 · 기억 점).
 		x: 로봇 map x [m].
 		y: 로봇 map y [m].
+		radius: 부풀릴 반지름 [m] (EXPLORE_PLAN_RADIUS 또는 좁은 곳의 EXPLORE_TIGHT_PLAN_RADIUS).
 
 	Returns:
 		(지나갈 수 있는 칸, 몸체 칸) bool 격자.
@@ -387,7 +406,7 @@ def passable_grid(
 	rows, cols, is_inside = plan.cell_of(points)
 	is_inside[is_inside] = ~dilate(plan.blocked, NEIGHBOURS)[rows[is_inside], cols[is_inside]]
 	blocked[rows[is_inside], cols[is_inside]] = True
-	passable = ~dilate(blocked, disk_offsets(config.EXPLORE_PLAN_RADIUS, plan.cell))
+	passable = ~dilate(blocked, disk_offsets(radius, plan.cell))
 	height, width = blocked.shape
 	xs = plan.origin_x + (np.arange(width) + 0.5) * plan.cell
 	ys = plan.origin_y + (np.arange(height) + 0.5) * plan.cell
@@ -532,12 +551,14 @@ class Candidate:
 		point: 그 칸에서 가장 가까운 프런티어 칸 중심 (map) — 바라볼 곳 · 블랙리스트.
 		cells: 덩어리에서 블랙리스트 밖 칸 중심 (k, 2) map — 하던 목표 찾기.
 		score: 경로 길이 [m] − SIZE_WEIGHT × 덩어리 길이 [m] (낮을수록 좋다).
+		is_cover: 프런티어가 아니라 아직 안 다닌 바닥 칸 (닿으면 바로 다음 목표, 바라보지 않는다).
 	"""
 
 	view: tuple[int, int]
 	point: tuple[float, float]
 	cells: np.ndarray
 	score: float
+	is_cover: bool = False
 
 
 def find_candidates(
@@ -639,6 +660,7 @@ class _Target:
 	segments: list[np.ndarray]    # 남은 구간마다 지나는 칸 중심 (k, 2) map, 끝 행이 웨이포인트
 	mode: str = 'go'
 	since: float = 0.0            # 'dwell' 을 시작한 시각
+	is_cover: bool = False        # 안 다닌 바닥 칸으로 가는 목표 (Candidate.is_cover)
 
 
 class Explorer:
@@ -685,6 +707,9 @@ class Explorer:
 		self._can_start = False
 		self._is_all_seen = False   # 지난 계획에 프런티어가 하나도 없었다 (갈 곳 · 못 갈 곳 · 건너뛴 곳 모두)
 		self._frontiers: int | None = None
+		self._trail: list[tuple[float, float]] = []   # 지나온 길 (지도 위 자세, EXPLORE_TRAIL_STEP 마다)
+		self._coverage: float | None = None           # 지난 계획의 다닌 바닥 비율
+		self._plan_radius = config.EXPLORE_PLAN_RADIUS   # 지금 목표를 찾은 부풀림 반지름
 
 	def step(self, snapshot: Snapshot) -> Step:
 		"""한 주기: 이번에 보낼 (vx, wz) 와 상태.
@@ -704,6 +729,8 @@ class Explorer:
 		if reason is not None:
 			return self._wait(s, reason)
 		self._resume(s)
+		if not self._trail or math.dist(self._trail[-1], s.map_pose[:2]) >= config.EXPLORE_TRAIL_STEP:
+			self._trail.append((float(s.map_pose[0]), float(s.map_pose[1])))
 		plan_map = self._map(s.grid)
 		if self._is_bumped(s):
 			return self._finish('stopped', BUMP_REASON)
@@ -903,15 +930,26 @@ class Explorer:
 		self._last_plan_at, self._should_replan = s.now, False
 		self._last_check = (s.now, plan_map.seq)   # 새 계획은 새 격자로 본 것
 		x, y = s.map_pose[0], s.map_pose[1]
-		passable, body = passable_grid(plan_map, self._plan_points(s), x, y)
+		points = self._plan_points(s)
 		(row,), (col,), _ = plan_map.cell_of(np.array([[x, y]]))
-		height, width = passable.shape
-		is_inside = 0 < row < height - 1 and 0 < col < width - 1
-		dist = bfs(passable, (row, col)) if is_inside else None
-		self._can_start = dist is not None and bool(((dist >= 0) & ~body).any())
-		candidates, unreachable, skipped = find_candidates(plan_map, dist, self._blacklist)
-		self._frontiers = len(candidates)
-		self._is_all_seen = not candidates and not unreachable and not skipped
+		# 넓은 반지름으로 갈 곳 (프런티어, 없으면 안 다닌 바닥) 이 없을 때만 좁은 반지름으로 다시 찾는다
+		for radius in (config.EXPLORE_PLAN_RADIUS, config.EXPLORE_TIGHT_PLAN_RADIUS):
+			passable, body = passable_grid(plan_map, points, x, y, radius)
+			height, width = passable.shape
+			is_inside = 0 < row < height - 1 and 0 < col < width - 1
+			dist = bfs(passable, (row, col)) if is_inside else None
+			self._can_start = dist is not None and bool(((dist >= 0) & ~body).any())
+			candidates, unreachable, skipped = find_candidates(plan_map, dist, self._blacklist)
+			self._frontiers = len(candidates)
+			self._is_all_seen = not candidates and not unreachable and not skipped
+			if candidates and dist is not None:   # 프런티어로 가는 동안에도 화면에 다닌 바닥을 보인다
+				self._update_coverage(plan_map, dist)
+			if not candidates and dist is not None:   # 다 봤어도 아직 안 다닌 바닥이 있으면 그리로 간다
+				cover = self._cover_candidate(plan_map, dist)
+				candidates = [] if cover is None else [cover]
+			if candidates:
+				break
+		self._plan_radius = radius   # 가는 동안 경로를 다시 볼 때 (S13) 같은 반지름
 		finished = None
 		if candidates:
 			self._empty_seq = None
@@ -925,12 +963,13 @@ class Explorer:
 				view=(float(view_x), float(view_y)),
 				point=choice.point,
 				segments=[plan_map.centres(np.array(segment)) for segment in segments],
+				is_cover=choice.is_cover,
 			)
 		else:
 			self._drop_target()
 			area = 0.0 if dist is None else np.count_nonzero(dist >= 0) * plan_map.cell ** 2
 			is_point_blocked = dist is not None and bool(find_candidates(
-				plan_map, bfs(passable_grid(plan_map, np.empty((0, 2)), x, y)[0], (row, col)),
+				plan_map, bfs(passable_grid(plan_map, np.empty((0, 2)), x, y, radius)[0], (row, col)),
 				self._blacklist,
 			)[0])
 			finished = self._on_empty(s, area, unreachable, skipped, is_point_blocked)
@@ -938,6 +977,53 @@ class Explorer:
 		if elapsed > PLAN_WARN_TIME:
 			logger.warning('탐색 계획이 %.2f s 걸렸습니다 (계획 칸 %d × %d)', elapsed, height, width)
 		return finished
+
+	def _update_coverage(
+		self, plan_map: PlanMap, dist: np.ndarray,
+	) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+		"""(닿는 칸 (블랙리스트 둘레는 뺀다), 바닥, 다닌 바닥) 을 만들고 self._coverage 를 고친다.
+
+		바닥 = 막힘 · 모름이 아닌 칸 중 닿는 칸에서 EXPLORE_COVER_RADIUS 안. 다닌 바닥 = 그중 지나온 길에서
+		EXPLORE_COVER_RADIUS 안.
+		"""
+		reach = dist >= 0
+		if self._blacklist:
+			cells = np.argwhere(reach)
+			centres = plan_map.centres(cells)
+			failed = np.array(self._blacklist, float)
+			gaps = np.hypot(*(centres[:, None, :] - failed[None, :, :]).transpose(2, 0, 1)).min(axis=1)
+			near = cells[gaps <= config.EXPLORE_BLACKLIST_RADIUS]
+			reach[near[:, 0], near[:, 1]] = False
+		disk = disk_offsets(config.EXPLORE_COVER_RADIUS, plan_map.cell)
+		floor = dilate(reach, disk) & ~plan_map.blocked
+		trail = np.zeros_like(reach)
+		rows, cols, is_inside = plan_map.cell_of(np.array(self._trail, float).reshape(-1, 2))
+		trail[rows[is_inside], cols[is_inside]] = True
+		covered = dilate(trail, disk) & floor
+		total = int(np.count_nonzero(floor))
+		self._coverage = 1.0 if not total else np.count_nonzero(covered) / total
+		return reach, floor, covered
+
+	def _cover_candidate(self, plan_map: PlanMap, dist: np.ndarray) -> Candidate | None:
+		"""다닌 바닥: 안 다닌 바닥을 가장 많이 덮는 닿는 칸 (덮는 넓이 ÷ (BFS 거리 + 반지름) 이 가장 큰 칸).
+
+		바닥 = 막힘 · 모름이 아닌 칸 중 로봇 중심이 닿는 칸 (블랙리스트 둘레는 뺀다) 에서 EXPLORE_COVER_RADIUS 안.
+		다닌 바닥 = 지나온 길에서 EXPLORE_COVER_RADIUS 안. 그 비율이 EXPLORE_COVER_RATIO 를 넘거나
+		COVER_MIN_GAIN 넘게 새로 덮을 칸이 없으면 None (끝 판단으로).
+		"""
+		reach, floor, covered = self._update_coverage(plan_map, dist)
+		if self._coverage >= config.EXPLORE_COVER_RATIO:
+			return None
+		disk = disk_offsets(config.EXPLORE_COVER_RADIUS, plan_map.cell)
+		gain = np.where(reach, disk_count(floor & ~covered, disk), 0)
+		if gain.max() * plan_map.cell ** 2 < COVER_MIN_GAIN:
+			return None
+		score = gain / (np.maximum(dist, 0) * plan_map.cell + config.EXPLORE_COVER_RADIUS)
+		view = np.unravel_index(int(score.argmax()), dist.shape)
+		view = (int(view[0]), int(view[1]))
+		centre = plan_map.centres(np.array([view]))
+		point = (float(centre[0, 0]), float(centre[0, 1]))
+		return Candidate(view, point, centre, float(dist[view]) * plan_map.cell, is_cover=True)
 
 	def _on_empty(
 		self, s: Snapshot, area: float, unreachable: int, skipped: int, is_point_blocked: bool,
@@ -962,17 +1048,20 @@ class Explorer:
 		if is_point_blocked:
 			self._empty_seq = None
 			return None
-		reason = DONE_REASON.format(unreachable=unreachable, skipped=skipped)
+		coverage = 100 if self._coverage is None else round(100 * self._coverage)
+		reason = DONE_REASON.format(coverage=coverage, unreachable=unreachable, skipped=skipped)
 		return self._finish('done', reason, should_save=True)
 
 	def _check_path(self, s: Snapshot, plan_map: PlanMap) -> None:
 		"""S13: 가는 동안 새 격자로 남은 경로 칸만 다시 본다. 목표 프런티어가 사라졌으면 다음 목표 (M7 b)."""
 		self._last_check = (s.now, plan_map.seq)
 		target = self._target
-		if not plan_map.has_frontier_near(target.point, VANISH_DISTANCE):
+		if not target.is_cover and not plan_map.has_frontier_near(target.point, VANISH_DISTANCE):
 			self._drop_target()
 			return
-		passable, _ = passable_grid(plan_map, self._plan_points(s), s.map_pose[0], s.map_pose[1])
+		passable, _ = passable_grid(
+			plan_map, self._plan_points(s), s.map_pose[0], s.map_pose[1], self._plan_radius,
+		)
 		rows, cols, is_inside = plan_map.cell_of(np.concatenate(target.segments))
 		if not (is_inside.all() and passable[rows, cols].all()):
 			self._should_replan = True   # M7: 같은 목표로 경로만 다시
@@ -983,6 +1072,11 @@ class Explorer:
 		x, y, yaw = s.map_pose
 		if target.mode == 'go':
 			if math.dist((x, y), target.view) <= ARRIVE_DISTANCE:   # 한 칸 경로면 이미 그 칸 안
+				if target.is_cover:
+					self._trail.append(target.point)   # 조금 앞에서 멈춰도 같은 칸을 또 고르지 않게
+					self._failures = 0
+					self._drop_target()
+					return 0.0, 0.0
 				target.mode, target.segments = 'face', []
 			else:
 				while len(target.segments) > 1 and (
@@ -1027,9 +1121,15 @@ class Explorer:
 		return s.now - progress[2] > config.EXPLORE_PROGRESS_TIMEOUT
 
 	def _fail(self) -> Step | None:
-		"""목표 실패: 블랙리스트에 넣고 다음 목표. 연달아 EXPLORE_MAX_FAILURES 번이면 끝낸다."""
+		"""목표 실패: 블랙리스트에 넣고 다음 목표. 연달아 EXPLORE_MAX_FAILURES 번이면 끝낸다.
+
+		안 다닌 바닥 칸은 세지 않는다: 지도는 이미 다 봤으니 그 둘레만 빼고 (다닌 바닥 분모에서도) 이어 간다.
+		"""
 		self._blacklist.append(self._target.point)
+		is_cover = self._target.is_cover
 		self._drop_target()
+		if is_cover:
+			return None
 		self._failures += 1
 		if self._failures >= config.EXPLORE_MAX_FAILURES:
 			return self._finish('stopped', STUCK_REASON)
@@ -1085,7 +1185,7 @@ class Explorer:
 			path = [round(float(value), 3) for point in points for value in point] or None
 		return Step(
 			float(vx), float(wz), state, reason, False, False, target, path,
-			self._frontiers, self._explored_area(),
+			self._frontiers, self._explored_area(), self._coverage,
 		)
 
 	def _finish(self, state: str, reason: str, should_save: bool = False) -> Step:
@@ -1093,7 +1193,7 @@ class Explorer:
 		self._target = None
 		self._finished = Step(
 			0.0, 0.0, state, reason, True, should_save, None, None,
-			self._frontiers, self._explored_area(),
+			self._frontiers, self._explored_area(), self._coverage,
 		)
 		return self._finished
 
